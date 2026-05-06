@@ -15,7 +15,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'serve', description: 'Start a MCP (Model Context Protocol) server over stdio backed by a context.json index.')]
 final class ServeCommand extends Command
 {
-    private const string DEFAULT_INDEX = '.code-context/context.json';
+    private const DEFAULT_INDEX = '.code-context/context.json';
 
     protected function configure(): void
     {

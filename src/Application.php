@@ -11,8 +11,8 @@ use Symfony\Component\Console\Application as SymfonyApplication;
 
 final class Application extends SymfonyApplication
 {
-    public const string NAME = 'code-context';
-    public const string VERSION = '0.1.0';
+    public const NAME = 'code-context';
+    public const VERSION = '0.1.0';
 
     public function __construct()
     {

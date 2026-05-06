@@ -26,7 +26,6 @@ use CodeContext\Renderer\Markdown\CommandsMdRenderer;
 use CodeContext\Renderer\Markdown\EntitiesMdRenderer;
 use CodeContext\Renderer\Markdown\RoutesMdRenderer;
 use CodeContext\Renderer\Markdown\ServicesMdRenderer;
-use CodeContext\Scanner\FileScanner;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -38,8 +37,8 @@ use Symfony\Component\Finder\SplFileInfo;
 #[AsCommand(name: 'generate', description: 'Analyze the project and generate the AI context files.')]
 final class GenerateCommand extends Command
 {
-    private const string DEFAULT_CONFIG_FILE = 'code-context.yaml';
-    private const string DEFAULTS_RELATIVE = '/../../config/default.yaml';
+    private const DEFAULT_CONFIG_FILE = 'code-context.yaml';
+    private const DEFAULTS_RELATIVE = '/../../config/default.yaml';
 
     protected function configure(): void
     {
