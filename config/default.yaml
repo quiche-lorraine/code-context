@@ -18,6 +18,8 @@ code_context:
     output:
         # Output directory (relative to project root).
         directory: '.code-context/'
+        # Cache file hashes to skip re-parsing unchanged files on subsequent runs.
+        cache: true
         files:
             json: 'context.json'
             agents_md: 'AGENTS.md'
@@ -52,6 +54,9 @@ code_context:
             include_toc: true
             # Group classes by namespace in AGENTS.md.
             group_by_namespace: true
+            # AGENTS.md verbosity: full | namespaces_only | top_level_only
+            # Use namespaces_only or top_level_only for large codebases (100+ classes).
+            agents_mode: 'full'
 
     extractors:
         composer: true
@@ -62,9 +67,19 @@ code_context:
                 - 'docs/**/*.md'
                 - 'CONTRIBUTING.md'
             include_full_content: false
+            # Max characters for the auto-extracted summary (default 500).
+            summary_max_chars: 500
+            # Max bytes included when include_full_content is true (default 8 KiB).
+            content_max_bytes: 8192
         symfony:
             auto_detect: true
             routes: true
             services: true
             entities: true
             commands: true
+        vendor_contracts:
+            # Index interfaces and abstract classes from vendor that are referenced
+            # by the project code (extends/implements/constructor/property types).
+            # Disabled by default — enable when you need to understand inherited APIs.
+            enabled: false
+            max_classes: 100

@@ -1,0 +1,11 @@
+/vendor/
+/composer.phar
+
+# Generated index output
+/.code-context/
+tests/Fixtures/**/.code-context/
+
+# Caches
+/.phpstan/
+/.phpunit.cache/
+/.php-cs-fixer.cache

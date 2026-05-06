@@ -55,4 +55,37 @@ final readonly class ClassInfo
             'summary' => $this->summary,
         ];
     }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public static function fromArray(array $data): self
+    {
+        $methods = array_map(
+            static fn (mixed $m): MethodInfo => MethodInfo::fromArray(\is_array($m) ? $m : []),
+            (array) ($data['methods'] ?? []),
+        );
+        $properties = array_map(
+            static fn (mixed $p): PropertyInfo => PropertyInfo::fromArray(\is_array($p) ? $p : []),
+            (array) ($data['properties'] ?? []),
+        );
+
+        return new self(
+            fqcn: (string) ($data['fqcn'] ?? ''),
+            shortName: (string) ($data['short_name'] ?? ''),
+            namespace: (string) ($data['namespace'] ?? ''),
+            kind: (string) ($data['kind'] ?? 'class'),
+            file: (string) ($data['file'] ?? ''),
+            isAbstract: (bool) ($data['abstract'] ?? false),
+            isFinal: (bool) ($data['final'] ?? false),
+            isReadonly: (bool) ($data['readonly'] ?? false),
+            extends: isset($data['extends']) ? (string) $data['extends'] : null,
+            implements: array_values(array_map('strval', (array) ($data['implements'] ?? []))),
+            traits: array_values(array_map('strval', (array) ($data['traits'] ?? []))),
+            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            methods: array_values($methods),
+            properties: array_values($properties),
+            summary: isset($data['summary']) ? (string) $data['summary'] : null,
+        );
+    }
 }

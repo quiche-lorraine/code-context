@@ -7,11 +7,15 @@ namespace CodeContext\Command;
 use CodeContext\Analyzer\PhpAstAnalyzer;
 use CodeContext\Config\Config;
 use CodeContext\Config\ConfigLoader;
+use CodeContext\Detector\EntryPointDetector;
 use CodeContext\Extractor\ComposerExtractor;
 use CodeContext\Extractor\DocsExtractor;
+use CodeContext\Extractor\EntryPointExtractor;
 use CodeContext\Extractor\ExtractorRegistry;
 use CodeContext\Extractor\PhpStructureExtractor;
 use CodeContext\Extractor\SymfonyExtractor;
+use CodeContext\Extractor\VendorContractsExtractor;
+use CodeContext\Index\ManifestManager;
 use CodeContext\Kernel\ProjectContext;
 use CodeContext\Model\Context;
 use CodeContext\Output\OutputWriter;
@@ -57,6 +61,12 @@ final class GenerateCommand extends Command
                 null,
                 InputOption::VALUE_REQUIRED,
                 'Project directory to analyze (defaults to the current working directory).',
+            )
+            ->addOption(
+                'no-cache',
+                null,
+                InputOption::VALUE_NONE,
+                'Disable the file-hash cache and re-parse all PHP files.',
             );
     }
 
@@ -81,16 +91,20 @@ final class GenerateCommand extends Command
         $io->writeln(sprintf('Project root: <info>%s</info>', $project->rootDir));
         $io->writeln(sprintf('User config:  <info>%s</info>', $userConfigPath ?? '(none, defaults only)'));
 
-        $context = $this->analyzeProject($project, $config, $io);
+        $outputDir = $this->resolveOutputDir($input, $project, $config);
+        $useCache = $config->outputCacheEnabled() && !$input->getOption('no-cache');
+
+        $context = $this->analyzeProject($project, $config, $io, $outputDir, $useCache);
         $registry = new ExtractorRegistry([
             new PhpStructureExtractor(),
             new ComposerExtractor(),
             new DocsExtractor(),
             new SymfonyExtractor(),
+            new EntryPointExtractor(new EntryPointDetector()),
+            new VendorContractsExtractor(),
         ]);
         $executedExtractors = $registry->run($project, $config, $context);
 
-        $outputDir = $this->resolveOutputDir($input, $project, $config);
         $writer = new OutputWriter($outputDir);
 
         $jsonRenderer = new JsonRenderer($config);
@@ -120,8 +134,13 @@ final class GenerateCommand extends Command
         return Command::SUCCESS;
     }
 
-    private function analyzeProject(ProjectContext $project, Config $config, SymfonyStyle $io): Context
-    {
+    private function analyzeProject(
+        ProjectContext $project,
+        Config $config,
+        SymfonyStyle $io,
+        string $outputDir,
+        bool $useCache,
+    ): Context {
         $context = new Context(
             projectRoot: $project->rootDir,
             generatedAt: (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format(\DATE_ATOM),
@@ -129,34 +148,75 @@ final class GenerateCommand extends Command
 
         $scanner = new FileScanner();
         $analyzer = new PhpAstAnalyzer($config);
+        $manifest = $useCache
+            ? new ManifestManager($outputDir . \DIRECTORY_SEPARATOR . 'manifest.json')
+            : null;
 
         $scanned = 0;
+        $cached = 0;
         $characters = 0;
+        $scannedFiles = [];
+
         foreach ($scanner->scan($project, $config->includePaths(), $config->excludePaths()) as $file) {
             ++$scanned;
             \assert($file instanceof SplFileInfo);
-            $relative = $this->relativePath($project->rootDir, $file->getRealPath() ?: $file->getPathname());
-            $contents = @file_get_contents($file->getPathname());
+            $absolute = $file->getRealPath() ?: $file->getPathname();
+            $relative = $this->relativePath($project->rootDir, $absolute);
+            $scannedFiles[] = $relative;
+
+            $contents = @file_get_contents($absolute);
             if (false !== $contents) {
-                $characters += strlen($contents);
+                $characters += \strlen($contents);
             }
-            foreach ($analyzer->analyze($file->getPathname(), $relative) as $classInfo) {
+
+            $hash = false !== $contents ? hash('sha256', $contents) : '';
+            $cachedClasses = null !== $manifest ? $manifest->get($relative, $hash) : null;
+
+            if (null !== $cachedClasses) {
+                ++$cached;
+                $classes = $cachedClasses;
+                $functions = [];
+            } else {
+                [$classes, $functions] = $analyzer->analyzeAll($absolute, $relative);
+                $manifest?->put($relative, $hash, $classes);
+            }
+
+            foreach ($classes as $classInfo) {
                 $context->classes[] = $classInfo;
             }
+            foreach ($functions as $funcInfo) {
+                $context->functions[] = $funcInfo;
+            }
         }
+
+        $manifest?->prune($scannedFiles);
+        $manifest?->save();
 
         usort(
             $context->classes,
             static fn ($a, $b): int => $a->fqcn <=> $b->fqcn,
         );
 
-        $io->writeln(sprintf('Scanned %d PHP files, captured %d class-like declarations.', $scanned, \count($context->classes)));
+        $cacheNote = $useCache ? sprintf(' (%d from cache)', $cached) : '';
+        $io->writeln(sprintf(
+            'Scanned %d PHP files%s, captured %d class-like declarations.',
+            $scanned,
+            $cacheNote,
+            \count($context->classes),
+        ));
+
+        usort(
+            $context->functions,
+            static fn ($a, $b): int => $a->fqn() <=> $b->fqn(),
+        );
+
         $context = new Context(
             projectRoot: $context->projectRoot,
             generatedAt: $context->generatedAt,
             projectCharacters: $characters,
-            estimatedTokens: (int) ceil($characters / 4),
+            estimatedTokens: (int) ceil($characters / 3.2),
             classes: $context->classes,
+            functions: $context->functions,
         );
 
         return $context;

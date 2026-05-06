@@ -31,7 +31,27 @@ final class AgentsMdRenderer
         $lines[] = '';
         $lines[] = sprintf('Project root: `%s`', $context->projectRoot);
         $lines[] = '';
-        $lines[] = sprintf('Total classes/interfaces/traits/enums analyzed: **%d**.', \count($context->classes));
+
+        $classCount = \count($context->classes);
+        $namespaceCount = \count($context->classesByNamespace());
+        $tokens = $context->estimatedTokens;
+        $lines[] = sprintf(
+            'Total: **%d** classes/interfaces/traits/enums across **%d** namespaces (~%d estimated tokens).',
+            $classCount,
+            $namespaceCount,
+            $tokens,
+        );
+
+        if ([] !== $context->entryPoints) {
+            $lines[] = '';
+            $lines[] = '**Entry points:** ' . implode(', ', array_map(
+                static fn (string $p): string => '`' . $p . '`',
+                $context->entryPoints,
+            ));
+        }
+
+        $lines[] = '';
+        $lines[] = '> For targeted queries on large codebases, use `code-context serve` (MCP server).';
         $lines[] = '';
 
         if ([] === $context->classes) {
@@ -41,13 +61,73 @@ final class AgentsMdRenderer
             return implode("\n", $lines);
         }
 
-        if ($this->config->markdownGroupByNamespace()) {
+        $mode = $this->config->markdownAgentsMode();
+
+        if ('namespaces_only' === $mode) {
+            $this->renderNamespacesOnly($context, $lines);
+        } elseif ('top_level_only' === $mode) {
+            $this->renderTopLevelOnly($context, $lines);
+        } elseif ($this->config->markdownGroupByNamespace()) {
             $this->renderByNamespace($context, $lines);
         } else {
             $this->renderFlat($context, $lines);
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Renders one line per namespace with class count — no method details.
+     *
+     * @param list<string> $lines
+     */
+    private function renderNamespacesOnly(Context $context, array &$lines): void
+    {
+        $grouped = $context->classesByNamespace();
+        $lines[] = '## Namespaces';
+        $lines[] = '';
+        foreach ($grouped as $namespace => $classes) {
+            $title = '' === $namespace ? '_(global namespace)_' : $namespace;
+            $lines[] = sprintf(
+                '- **%s** — %d %s',
+                $title,
+                \count($classes),
+                1 === \count($classes) ? 'class' : 'classes',
+            );
+        }
+        $lines[] = '';
+    }
+
+    /**
+     * Renders only classes whose namespace depth is ≤ 2 (e.g. App\Service but not App\Service\Payment\*).
+     *
+     * @param list<string> $lines
+     */
+    private function renderTopLevelOnly(Context $context, array &$lines): void
+    {
+        $grouped = $context->classesByNamespace();
+        $filtered = [];
+        foreach ($grouped as $namespace => $classes) {
+            if ('' === $namespace || \count(explode('\\', $namespace)) <= 2) {
+                $filtered[$namespace] = $classes;
+            }
+        }
+
+        if ([] === $filtered) {
+            $lines[] = '> No top-level classes found (namespace depth ≤ 2).';
+            $lines[] = '';
+
+            return;
+        }
+
+        foreach ($filtered as $namespace => $classes) {
+            $title = '' === $namespace ? '_(global namespace)_' : $namespace;
+            $lines[] = '## ' . $title;
+            $lines[] = '';
+            foreach ($classes as $class) {
+                $this->renderClass($class, $lines);
+            }
+        }
     }
 
     /**
