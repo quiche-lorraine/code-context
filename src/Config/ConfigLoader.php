@@ -11,7 +11,7 @@ use Symfony\Component\Yaml\Yaml;
  */
 final class ConfigLoader
 {
-    private const string ROOT_KEY = 'code_context';
+    private const ROOT_KEY = 'code_context';
 
     public function __construct(
         private readonly string $defaultsPath,
