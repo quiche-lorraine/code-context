@@ -1,0 +1,7 @@
+{
+  "name": "fixtures/symfony-mini",
+  "require": {
+    "php": "^8.2",
+    "symfony/framework-bundle": "^7.0"
+  }
+}

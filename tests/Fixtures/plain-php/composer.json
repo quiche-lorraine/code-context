@@ -1,0 +1,6 @@
+{
+  "name": "fixtures/plain-php",
+  "require": {
+    "php": "^8.2"
+  }
+}

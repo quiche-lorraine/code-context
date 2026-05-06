@@ -1,0 +1,70 @@
+# Default configuration for the code-context CLI.
+# A user-supplied code-context.yaml at the project root is deep-merged on top of this file.
+code_context:
+    paths:
+        # Project root to analyze. Resolved relative to the cwd when the CLI is invoked.
+        root: '.'
+        # Directories or files to include in the scan (relative to root).
+        include:
+            - 'src/'
+        # Directories or files to exclude from the scan (relative to root).
+        exclude:
+            - 'vendor/'
+            - 'var/'
+            - 'node_modules/'
+            - 'tests/'
+            - '.code-context/'
+
+    output:
+        # Output directory (relative to project root).
+        directory: '.code-context/'
+        files:
+            json: 'context.json'
+            agents_md: 'AGENTS.md'
+            thematic:
+                architecture: 'architecture.md'
+                routes: 'routes.md'
+                entities: 'entities.md'
+                services: 'services.md'
+                commands: 'commands.md'
+
+    analyzers:
+        php:
+            # Include classes, interfaces, traits, enums.
+            include_signatures: true
+            # Include public properties (and protected/private depending on visibility flags).
+            include_properties: true
+            # PHPDoc summary level: none | first_line | full
+            include_phpdoc: 'first_line'
+            # Whether to capture method bodies (kept off by default to minimize tokens).
+            include_method_bodies: false
+            # Visibility filters.
+            include_private: false
+            include_protected: true
+            # Include PHP 8 attributes as readable strings (e.g. "Route('/blog')").
+            include_attributes: true
+
+    rendering:
+        json:
+            pretty: true
+            strip_nulls: true
+        markdown:
+            include_toc: true
+            # Group classes by namespace in AGENTS.md.
+            group_by_namespace: true
+
+    extractors:
+        composer: true
+        docs:
+            enabled: true
+            patterns:
+                - 'README.md'
+                - 'docs/**/*.md'
+                - 'CONTRIBUTING.md'
+            include_full_content: false
+        symfony:
+            auto_detect: true
+            routes: true
+            services: true
+            entities: true
+            commands: true
