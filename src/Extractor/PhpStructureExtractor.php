@@ -10,7 +10,7 @@ use CodeContext\Model\Context;
 
 final class PhpStructureExtractor implements ExtractorInterface
 {
-    private const array PRIMITIVE_TYPES = [
+    private const PRIMITIVE_TYPES = [
         'string', 'int', 'integer', 'float', 'double', 'bool', 'boolean',
         'null', 'true', 'false', 'array', 'object', 'callable', 'iterable',
         'mixed', 'void', 'never', 'resource', 'self', 'static', 'parent',
