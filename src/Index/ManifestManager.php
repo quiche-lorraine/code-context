@@ -12,7 +12,7 @@ use CodeContext\Model\ClassInfo;
  */
 final class ManifestManager
 {
-    private const int VERSION = 1;
+    private const VERSION = 1;
 
     /** @var array<string, array{hash: string, classes: list<array<string, mixed>>}> */
     private array $entries = [];
