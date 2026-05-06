@@ -15,9 +15,9 @@ use CodeContext\Index\ClassIndex;
  */
 final class McpServer
 {
-    private const string PROTOCOL_VERSION = '2024-11-05';
-    private const string SERVER_NAME = 'code-context';
-    private const string SERVER_VERSION = '0.1.0';
+    private const PROTOCOL_VERSION = '2024-11-05';
+    private const SERVER_NAME = 'code-context';
+    private const SERVER_VERSION = '0.1.0';
 
     public function __construct(private readonly ClassIndex $index)
     {
