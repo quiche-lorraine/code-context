@@ -1,5 +1,5 @@
 {
-    "name": "local/code-context",
+    "name": "quiche-lorraine/code-context",
     "description": "CLI standalone qui génère un contexte de codebase (JSON + Markdown) destiné aux agents IA.",
     "type": "library",
     "license": "MIT",
