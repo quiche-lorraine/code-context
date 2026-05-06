@@ -37,4 +37,21 @@ final readonly class PropertyInfo
             'summary' => $this->summary,
         ];
     }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public static function fromArray(array $data): self
+    {
+        return new self(
+            name: (string) ($data['name'] ?? ''),
+            visibility: (string) ($data['visibility'] ?? 'public'),
+            isStatic: (bool) ($data['static'] ?? false),
+            isReadonly: (bool) ($data['readonly'] ?? false),
+            type: isset($data['type']) ? (string) $data['type'] : null,
+            default: isset($data['default']) ? (string) $data['default'] : null,
+            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            summary: isset($data['summary']) ? (string) $data['summary'] : null,
+        );
+    }
 }

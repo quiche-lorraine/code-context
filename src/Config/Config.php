@@ -45,6 +45,11 @@ final readonly class Config
         return (string) $this->get('output.directory', '.code-context/');
     }
 
+    public function outputCacheEnabled(): bool
+    {
+        return (bool) $this->get('output.cache', true);
+    }
+
     public function jsonFile(): string
     {
         return (string) $this->get('output.files.json', 'context.json');
@@ -137,6 +142,13 @@ final readonly class Config
         return (bool) $this->get('rendering.markdown.include_toc', true);
     }
 
+    public function markdownAgentsMode(): string
+    {
+        $mode = (string) $this->get('rendering.markdown.agents_mode', 'full');
+
+        return \in_array($mode, ['full', 'namespaces_only', 'top_level_only'], true) ? $mode : 'full';
+    }
+
     public function extractorComposerEnabled(): bool
     {
         return (bool) $this->get('extractors.composer', true);
@@ -158,6 +170,16 @@ final readonly class Config
     public function docsIncludeFullContent(): bool
     {
         return (bool) $this->get('extractors.docs.include_full_content', false);
+    }
+
+    public function docsSummaryMaxChars(): int
+    {
+        return (int) $this->get('extractors.docs.summary_max_chars', 500);
+    }
+
+    public function docsContentMaxBytes(): int
+    {
+        return (int) $this->get('extractors.docs.content_max_bytes', 8192);
     }
 
     public function symfonyAutoDetect(): bool
@@ -183,6 +205,16 @@ final readonly class Config
     public function symfonyCommandsEnabled(): bool
     {
         return (bool) $this->get('extractors.symfony.commands', true);
+    }
+
+    public function vendorContractsEnabled(): bool
+    {
+        return (bool) $this->get('extractors.vendor_contracts.enabled', false);
+    }
+
+    public function vendorContractsMaxClasses(): int
+    {
+        return (int) $this->get('extractors.vendor_contracts.max_classes', 100);
     }
 
     /**

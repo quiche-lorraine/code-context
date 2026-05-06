@@ -40,4 +40,27 @@ final readonly class MethodInfo
             'summary' => $this->summary,
         ];
     }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public static function fromArray(array $data): self
+    {
+        $parameters = array_map(
+            static fn (mixed $p): ParameterInfo => ParameterInfo::fromArray(\is_array($p) ? $p : []),
+            (array) ($data['parameters'] ?? []),
+        );
+
+        return new self(
+            name: (string) ($data['name'] ?? ''),
+            visibility: (string) ($data['visibility'] ?? 'public'),
+            isStatic: (bool) ($data['static'] ?? false),
+            isAbstract: (bool) ($data['abstract'] ?? false),
+            isFinal: (bool) ($data['final'] ?? false),
+            returnType: isset($data['return_type']) ? (string) $data['return_type'] : null,
+            parameters: array_values($parameters),
+            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            summary: isset($data['summary']) ? (string) $data['summary'] : null,
+        );
+    }
 }

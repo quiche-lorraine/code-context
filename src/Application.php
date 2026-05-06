@@ -6,6 +6,7 @@ namespace CodeContext;
 
 use CodeContext\Command\GenerateCommand;
 use CodeContext\Command\InitCommand;
+use CodeContext\Command\ServeCommand;
 use Symfony\Component\Console\Application as SymfonyApplication;
 
 final class Application extends SymfonyApplication
@@ -19,5 +20,6 @@ final class Application extends SymfonyApplication
 
         $this->addCommand(new GenerateCommand());
         $this->addCommand(new InitCommand());
+        $this->addCommand(new ServeCommand());
     }
 }

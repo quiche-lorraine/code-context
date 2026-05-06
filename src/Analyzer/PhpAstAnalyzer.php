@@ -6,6 +6,7 @@ namespace CodeContext\Analyzer;
 
 use CodeContext\Config\Config;
 use CodeContext\Model\ClassInfo;
+use CodeContext\Model\FunctionInfo;
 use CodeContext\Model\MethodInfo;
 use CodeContext\Model\ParameterInfo;
 use CodeContext\Model\PropertyInfo;
@@ -47,35 +48,85 @@ final class PhpAstAnalyzer
      */
     public function analyze(string $absoluteFile, string $relativeFile): array
     {
+        return $this->analyzeAll($absoluteFile, $relativeFile)[0];
+    }
+
+    /**
+     * Parses a file once and returns both class-like declarations and standalone functions.
+     *
+     * @return array{0: list<ClassInfo>, 1: list<FunctionInfo>}
+     */
+    public function analyzeAll(string $absoluteFile, string $relativeFile): array
+    {
+        $ast = $this->parseFile($absoluteFile);
+        if (null === $ast) {
+            return [[], []];
+        }
+
+        /** @var list<Node\Stmt\ClassLike> $classLikes */
+        $classLikes = $this->finder->findInstanceOf($ast, Node\Stmt\ClassLike::class);
+        $classes = [];
+        foreach ($classLikes as $node) {
+            $info = $this->buildClassInfo($node, $relativeFile);
+            if (null !== $info) {
+                $classes[] = $info;
+            }
+        }
+
+        /** @var list<Node\Stmt\Function_> $funcNodes */
+        $funcNodes = $this->finder->findInstanceOf($ast, Node\Stmt\Function_::class);
+        $functions = [];
+        foreach ($funcNodes as $node) {
+            $functions[] = $this->buildFunctionInfo($node, $relativeFile);
+        }
+
+        return [$classes, $functions];
+    }
+
+    /** @return array<\PhpParser\Node>|null */
+    private function parseFile(string $absoluteFile): ?array
+    {
         $source = @file_get_contents($absoluteFile);
         if (false === $source) {
-            return [];
+            return null;
         }
 
         try {
             $ast = $this->parser->parse($source);
         } catch (\Throwable) {
-            return [];
+            return null;
         }
 
         if (null === $ast) {
-            return [];
+            return null;
         }
 
-        $ast = $this->traverser->traverse($ast);
+        return $this->traverser->traverse($ast);
+    }
 
-        /** @var list<Node\Stmt\ClassLike> $classLikes */
-        $classLikes = $this->finder->findInstanceOf($ast, Node\Stmt\ClassLike::class);
-
-        $infos = [];
-        foreach ($classLikes as $node) {
-            $info = $this->buildClassInfo($node, $relativeFile);
-            if (null !== $info) {
-                $infos[] = $info;
-            }
+    private function buildFunctionInfo(Node\Stmt\Function_ $node, string $relativeFile): FunctionInfo
+    {
+        $namespace = '';
+        if (null !== $node->namespacedName) {
+            $fqn = $node->namespacedName->toString();
+            $pos = strrpos($fqn, '\\');
+            $namespace = false !== $pos ? substr($fqn, 0, $pos) : '';
         }
 
-        return $infos;
+        $parameters = [];
+        foreach ($node->params as $param) {
+            $parameters[] = $this->buildParameterInfo($param);
+        }
+
+        return new FunctionInfo(
+            name: $node->name->toString(),
+            namespace: $namespace,
+            file: $relativeFile,
+            returnType: $this->renderType($node->returnType),
+            parameters: $parameters,
+            attributes: $this->extractAttributes($node),
+            summary: $this->extractDocSummary($node),
+        );
     }
 
     private function buildClassInfo(Node\Stmt\ClassLike $node, string $relativeFile): ?ClassInfo
