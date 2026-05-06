@@ -12,7 +12,7 @@ namespace CodeContext\Detector;
 final class EntryPointDetector
 {
     /** Files whose mere existence signals an entry point. */
-    private const array KNOWN_FILES = [
+    private const KNOWN_FILES = [
         'public/index.php',
         'web/index.php',
         'index.php',
