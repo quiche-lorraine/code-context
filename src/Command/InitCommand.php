@@ -14,8 +14,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'init', description: 'Create a starter code-context.yaml in the target directory.')]
 final class InitCommand extends Command
 {
-    private const string DEFAULT_OUTPUT_FILE = 'code-context.yaml';
-    private const string DEFAULTS_RELATIVE = '/../../config/default.yaml';
+    private const DEFAULT_OUTPUT_FILE = 'code-context.yaml';
+    private const DEFAULTS_RELATIVE = '/../../config/default.yaml';
 
     protected function configure(): void
     {
