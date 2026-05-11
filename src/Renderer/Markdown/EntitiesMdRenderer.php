@@ -11,12 +11,16 @@ final class EntitiesMdRenderer
     public function render(Context $context): string
     {
         $entities = \is_array($context->symfony['entities'] ?? null) ? $context->symfony['entities'] : [];
+        $enums = \is_array($context->symfony['entity_enums'] ?? null) ? $context->symfony['entity_enums'] : [];
+
         $lines = ['# entities.md', ''];
-        if ([] === $entities) {
+
+        if ([] === $entities && [] === $enums) {
             $lines[] = '> No Doctrine entities detected.';
 
             return implode("\n", $lines) . "\n";
         }
+
         foreach ($entities as $entity) {
             if (!\is_array($entity)) {
                 continue;
@@ -28,16 +32,56 @@ final class EntitiesMdRenderer
                 if (!\is_array($property)) {
                     continue;
                 }
-                $lines[] = sprintf(
-                    '- `%s $%s` (%s)',
-                    (string) (($property['type'] ?? null) ?: 'mixed'),
-                    (string) ($property['name'] ?? '?'),
-                    (string) ($property['visibility'] ?? 'public'),
-                );
+                $type = (string) (($property['type'] ?? null) ?: 'mixed');
+                $name = (string) ($property['name'] ?? '?');
+                $attrs = $this->filterDoctrineAttributes((array) ($property['attributes'] ?? []));
+                if ([] !== $attrs) {
+                    $attrStr = implode(', ', array_map(
+                        fn (string $a): string => '`' . $this->shortAttrName($a) . '`',
+                        $attrs,
+                    ));
+                    $lines[] = sprintf('- `%s $%s` — %s', $type, $name, $attrStr);
+                } else {
+                    $lines[] = sprintf('- `%s $%s`', $type, $name);
+                }
+            }
+            $lines[] = '';
+        }
+
+        if ([] !== $enums) {
+            $lines[] = '## Enums';
+            $lines[] = '';
+            foreach ($enums as $enum) {
+                if (!\is_array($enum)) {
+                    continue;
+                }
+                $fqcn = (string) ($enum['class'] ?? '?');
+                $cases = array_map('strval', (array) ($enum['cases'] ?? []));
+                $casesStr = [] !== $cases
+                    ? ' — ' . implode(', ', array_map(static fn (string $c): string => '`' . $c . '`', $cases))
+                    : '';
+                $lines[] = sprintf('- `%s`%s', $fqcn, $casesStr);
             }
             $lines[] = '';
         }
 
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * @param array<mixed> $attributes
+     * @return list<string>
+     */
+    private function filterDoctrineAttributes(array $attributes): array
+    {
+        return array_values(array_filter(
+            array_map('strval', $attributes),
+            static fn (string $a): bool => str_contains($a, 'Doctrine\\ORM\\Mapping\\'),
+        ));
+    }
+
+    private function shortAttrName(string $attr): string
+    {
+        return preg_replace('/^Doctrine\\\\ORM\\\\Mapping\\\\/', '', $attr) ?? $attr;
     }
 }

@@ -112,6 +112,14 @@ final readonly class Config
         return (bool) $this->get('analyzers.php.include_private', false);
     }
 
+    public function withIncludePrivate(bool $include): self
+    {
+        $tree = $this->tree;
+        $tree['analyzers']['php']['include_private'] = $include;
+
+        return new self($tree);
+    }
+
     public function phpIncludeProtected(): bool
     {
         return (bool) $this->get('analyzers.php.include_protected', true);

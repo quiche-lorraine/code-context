@@ -12,6 +12,7 @@ final readonly class ClassInfo
      * @param list<string>       $attributes
      * @param list<MethodInfo>   $methods
      * @param list<PropertyInfo> $properties
+     * @param list<string>       $cases      Enum case names (populated for kind='enum')
      */
     public function __construct(
         public string $fqcn,
@@ -29,6 +30,7 @@ final readonly class ClassInfo
         public array $methods,
         public array $properties,
         public ?string $summary,
+        public array $cases = [],
     ) {
     }
 
@@ -53,6 +55,7 @@ final readonly class ClassInfo
             'methods' => array_map(static fn (MethodInfo $m): array => $m->toArray(), $this->methods),
             'properties' => array_map(static fn (PropertyInfo $p): array => $p->toArray(), $this->properties),
             'summary' => $this->summary,
+            'cases' => $this->cases,
         ];
     }
 
@@ -86,6 +89,7 @@ final readonly class ClassInfo
             methods: array_values($methods),
             properties: array_values($properties),
             summary: isset($data['summary']) ? (string) $data['summary'] : null,
+            cases: array_values(array_map('strval', (array) ($data['cases'] ?? []))),
         );
     }
 }

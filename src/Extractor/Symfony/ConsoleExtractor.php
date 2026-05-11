@@ -19,16 +19,31 @@ final class ConsoleExtractor
         $commands = [];
         foreach ($context->classes as $class) {
             foreach ($class->attributes as $attribute) {
-                if (!str_starts_with($attribute, 'Symfony\Component\Console\Attribute\AsCommand(')
-                    && !str_starts_with($attribute, 'AsCommand(')) {
+                if (!str_starts_with($attribute, 'Symfony\\Component\\Console\\Attribute\\AsCommand')
+                    && !str_starts_with($attribute, 'AsCommand')) {
                     continue;
+                }
+
+                $name = null;
+                $description = null;
+
+                if (preg_match('/\bname:\s*[\'"](.*?)[\'"]/', $attribute, $m)) {
+                    $name = $m[1];
+                } elseif (preg_match('/AsCommand\([\'"]([^\'"]+)[\'"]/', $attribute, $m)) {
+                    $name = $m[1];
+                }
+
+                if (preg_match('/\bdescription:\s*[\'"](.*?)[\'"]/', $attribute, $m)) {
+                    $description = $m[1];
                 }
 
                 $commands[] = [
                     'class' => $class->fqcn,
                     'file' => $class->file,
-                    'attribute' => $attribute,
+                    'name' => $name,
+                    'description' => $description,
                 ];
+                break;
             }
         }
 

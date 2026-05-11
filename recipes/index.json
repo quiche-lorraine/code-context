@@ -1,0 +1,7 @@
+{
+    "recipes": {
+        "quiche-lorraine/code-context": ["dev-main"]
+    },
+    "branch": "main",
+    "is_contrib": false
+}
