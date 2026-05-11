@@ -144,12 +144,17 @@ final class PhpAstAnalyzer
 
         $methods = [];
         $properties = [];
+        $cases = [];
         foreach ($node->stmts ?? [] as $stmt) {
             if ($stmt instanceof Node\Stmt\ClassMethod) {
                 $method = $this->buildMethodInfo($stmt);
                 if (null !== $method) {
                     $methods[] = $method;
                 }
+                continue;
+            }
+            if ($stmt instanceof Node\Stmt\EnumCase) {
+                $cases[] = $stmt->name->toString();
                 continue;
             }
             if ($this->config->phpIncludeProperties() && $stmt instanceof Node\Stmt\Property) {
@@ -175,6 +180,7 @@ final class PhpAstAnalyzer
             methods: $methods,
             properties: $properties,
             summary: $this->extractDocSummary($node),
+            cases: $cases,
         );
     }
 

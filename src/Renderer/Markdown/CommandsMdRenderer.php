@@ -21,11 +21,19 @@ final class CommandsMdRenderer
             if (!\is_array($command)) {
                 continue;
             }
-            $lines[] = sprintf(
-                '- `%s` — `%s`',
-                (string) ($command['class'] ?? '?'),
-                (string) ($command['attribute'] ?? ''),
-            );
+            $name = (string) ($command['name'] ?? '');
+            $class = (string) ($command['class'] ?? '?');
+            $description = (string) ($command['description'] ?? '');
+
+            if ('' !== $name) {
+                $line = sprintf('- **`%s`** (`%s`)', $name, $class);
+                if ('' !== $description) {
+                    $line .= ' — ' . $description;
+                }
+            } else {
+                $line = sprintf('- `%s`', $class);
+            }
+            $lines[] = $line;
         }
 
         return implode("\n", $lines) . "\n";

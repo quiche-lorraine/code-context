@@ -15,6 +15,35 @@ composer install
 
 Si le projet hôte expose déjà `symfony/console`, `symfony/yaml`, `symfony/finder`, `symfony/filesystem` et `nikic/php-parser` dans son propre `vendor/`, le binaire les détectera automatiquement (utile pour le développement, mais une installation propre via Composer reste recommandée).
 
+## Recette Symfony Flex (auto-install de `.mcp.json`)
+
+Ce package expose une recette Symfony Flex privée qui copie automatiquement un fichier `.mcp.json` à la racine du projet lors du `composer require`.
+
+### Configuration du endpoint privé
+
+Dans le `composer.json` du projet hôte, déclarez l'endpoint Flex privé :
+
+```json
+{
+    "extra": {
+        "symfony": {
+            "endpoint": [
+                "https://raw.githubusercontent.com/quiche-lorraine/code-context/main/recipes",
+                "flex://defaults"
+            ]
+        }
+    }
+}
+```
+
+### Installation via Flex
+
+```bash
+composer require --dev quiche-lorraine/code-context
+```
+
+Symfony Flex détecte la recette et copie `.mcp.json` à la racine du projet. Ce fichier configure le serveur MCP `code-context` pour les agents IA.
+
 ## Utilisation
 
 À la racine d'un projet PHP :
@@ -108,11 +137,18 @@ src/
         OutputWriter       Écriture sur disque
 config/
     default.yaml           Configuration par défaut bundled
+recipes/
+    index.json             Endpoint Symfony Flex privé
+    quiche-lorraine/
+        code-context/
+            dev-main/
+                manifest.json   Copie .mcp.json dans le projet hôte
+                .mcp.json       Template de configuration MCP
 ```
 
 ## Roadmap (reste à faire)
 
-- Durcir et étendre la suite de tests d’intégration.
+- Durcir et étendre la suite de tests d'intégration.
 - Exécuter systématiquement phpstan/php-cs-fixer en CI.
 
 ## Qualité de code
