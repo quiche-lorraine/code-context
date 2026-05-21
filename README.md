@@ -2,26 +2,11 @@
 
 CLI standalone (basé sur `symfony/console`) qui analyse une base de code PHP et produit un dossier de contexte destiné aux agents IA, composé d'un `context.json` structuré et de plusieurs `.md` orientés agents.
 
-> Statut : **Phase 2 en cours**. Le socle est opérationnel : commande `init`, validation stricte de config, architecture extracteurs, détection Symfony, fichiers `.md` thématiques. Les tests automatisés et la QA statique restent à finaliser.
+> Statut : **Phase 2 en cours**. Le socle est opérationnel : commandes `init`, `generate`, `serve`, validation stricte de config, architecture extracteurs, détection Symfony, fichiers `.md` thématiques.
 
-## Installation
+## Installation dans un projet Symfony Flex
 
-Le package est conçu pour être versionné en local dans `packages/code-context/` et utilisé sans publication.
-
-```bash
-cd packages/code-context
-composer install
-```
-
-Si le projet hôte expose déjà `symfony/console`, `symfony/yaml`, `symfony/finder`, `symfony/filesystem` et `nikic/php-parser` dans son propre `vendor/`, le binaire les détectera automatiquement (utile pour le développement, mais une installation propre via Composer reste recommandée).
-
-## Recette Symfony Flex (auto-install de `.mcp.json`)
-
-Ce package expose une recette Symfony Flex privée qui copie automatiquement un fichier `.mcp.json` à la racine du projet lors du `composer require`.
-
-### Configuration du endpoint privé
-
-Dans le `composer.json` du projet hôte, déclarez l'endpoint Flex privé :
+Déclarez l'endpoint Flex privé dans le `composer.json` du projet hôte :
 
 ```json
 {
@@ -36,73 +21,84 @@ Dans le `composer.json` du projet hôte, déclarez l'endpoint Flex privé :
 }
 ```
 
-### Installation via Flex
+Puis :
 
 ```bash
 composer require --dev quiche-lorraine/code-context
 ```
 
-Symfony Flex détecte la recette et copie `.mcp.json` à la racine du projet. Ce fichier configure le serveur MCP `code-context` pour les agents IA.
+Symfony Flex applique la recette automatiquement :
+- crée `.claude/hooks/code-context-rebuild.sh` (hook SessionStart)
+- crée `.cursor/rules/code-context.md` (règles Cursor)
+- ajoute `/code-context-out/` au `.gitignore`
+- si le projet n'a pas encore de `.claude/settings.json`, le crée avec le hook SessionStart pré-câblé
+
+Enregistrez ensuite le serveur MCP (merge non-destructif, préserve les serveurs existants) :
+
+```bash
+vendor/bin/code-context init --agent=mcp
+```
+
+Puis générez le premier index :
+
+```bash
+vendor/bin/code-context generate
+```
+
+## Installation sans Symfony Flex
+
+```bash
+composer require --dev quiche-lorraine/code-context
+vendor/bin/code-context init --agent=all   # configure MCP + Claude Code + Cursor
+vendor/bin/code-context generate
+```
+
+## Commande `init --agent`
+
+```bash
+vendor/bin/code-context init --agent=mcp         # merge dans .mcp.json (préserve les autres serveurs)
+vendor/bin/code-context init --agent=claude-code  # écrit .claude/settings.json + hook (skip si déjà présent)
+vendor/bin/code-context init --agent=cursor       # écrit .cursor/rules/code-context.md (skip si déjà présent)
+vendor/bin/code-context init --agent=all          # tous les agents
+vendor/bin/code-context init --agent=mcp --dry-run  # affiche le résultat sans écrire
+```
+
+Le merge MCP est idempotent : une seconde exécution est no-op si la config est déjà à jour.
+
+Pour `--agent=claude-code` et `--agent=cursor` : si le fichier cible existe déjà, la commande l'ignore et affiche un message « already exists, skipping ». Pas de clobber.
+
+**Projets avec un `session-start.sh` existant** : la recette crée `.claude/hooks/code-context-rebuild.sh` mais ne modifie pas un `settings.json` existant. Ajoutez simplement l'appel dans votre orchestrateur :
+
+```bash
+if [ -x .claude/hooks/code-context-rebuild.sh ]; then
+    .claude/hooks/code-context-rebuild.sh
+fi
+```
 
 ## Utilisation
 
-À la racine d'un projet PHP :
-
-```bash
-php packages/code-context/bin/code-context init
-php packages/code-context/bin/code-context generate
-```
-
 Options principales :
 
-- `--config=PATH` : chemin vers un fichier `code-context.yaml` (par défaut, le fichier homonyme à la racine si présent ; sinon les valeurs par défaut bundled).
-- `--output=DIR` : surcharge `output.directory` du YAML.
-- `--cwd=DIR` : analyser un autre répertoire que le cwd courant.
+- `generate --config=PATH` : chemin vers un fichier `code-context.yaml`.
+- `generate --output=DIR` : surcharge `output.directory` du YAML.
+- `generate --cwd=DIR` : analyser un autre répertoire que le cwd courant.
 
-Sortie générée dans `<output.directory>` (par défaut `.code-context/`) :
+Sortie générée dans `<output.directory>` (par défaut `code-context-out/`) :
 
-- `context.json` : représentation structurée et stable, conçue pour être consommée par une IA.
-- `AGENTS.md` : vue narrative regroupée par namespace, listant chaque classe et ses méthodes publiques.
-- `architecture.md` : vue synthétique des volumes de code extraits.
-- `routes.md`, `entities.md`, `services.md`, `commands.md` : vues Symfony spécialisées.
+- `context.json` : représentation structurée consommée par le serveur MCP.
+- `AGENTS.md` : vue narrative regroupée par namespace.
+- `architecture.md`, `routes.md`, `entities.md`, `services.md`, `commands.md` : vues Symfony spécialisées.
 
-### Données ajoutées dans `context.json`
-
-- `project.characters` : nombre total de caractères scannés (fichiers PHP inclus).
-- `project.estimated_tokens` : estimation rapide (`characters / 4`, arrondi supérieur).
-- `php.summary` : métriques globales de structure.
-- `composer`, `docs`, `symfony` : sections extraites par extracteurs dédiés.
-
-## Configuration
-
-Tous les comportements sont pilotés par un fichier YAML (mergé sur `config/default.yaml` du package). Exemple minimal `code-context.yaml` :
-
-```yaml
-code_context:
-    paths:
-        include: ['src/', 'config/']
-        exclude: ['vendor/', 'var/', 'tests/']
-    analyzers:
-        php:
-            include_phpdoc: 'first_line'   # none | first_line | full
-            include_private: false
-    rendering:
-        json:
-            pretty: true
-            strip_nulls: true
-```
-
-Voir [`config/default.yaml`](config/default.yaml) pour l'ensemble des clés supportées.
-
-## Architecture (Phase 2 courante)
+## Architecture
 
 ```
 bin/code-context           Entrypoint Symfony Console
 src/
-    Application.php        Application Symfony Console
+    Application.php
     Command/
-        InitCommand        Génère code-context.yaml
+        InitCommand        init --agent=mcp|claude-code|cursor|all + legacy yaml init
         GenerateCommand    Orchestre scan + extracteurs + renderers
+        ServeCommand       Serveur MCP stdio
     Config/
         Config             Value-object immuable
         ConfigLoader       default.yaml + override utilisateur + validation
@@ -119,6 +115,9 @@ src/
         Symfony/*          Routes, services, entities, commands
     Kernel/
         ProjectContext     Résolution des chemins du projet cible
+    Mcp/
+        McpManifestMerger  Merge non-destructif de .mcp.json (idémpotent)
+        MergeResult        DTO résultat du merge
     Scanner/
         FileScanner        Découverte via symfony/finder
     Analyzer/
@@ -126,13 +125,7 @@ src/
     Model/                 DTO immuables: Context, ClassInfo, MethodInfo, ...
     Renderer/
         JsonRenderer       context.json
-        Markdown/
-            AgentsMdRenderer       AGENTS.md
-            ArchitectureMdRenderer architecture.md
-            RoutesMdRenderer       routes.md
-            EntitiesMdRenderer     entities.md
-            ServicesMdRenderer     services.md
-            CommandsMdRenderer     commands.md
+        Markdown/          AGENTS.md, architecture.md, routes.md, etc.
     Output/
         OutputWriter       Écriture sur disque
 config/
@@ -142,25 +135,18 @@ recipes/
     quiche-lorraine/
         code-context/
             dev-main/
-                manifest.json   Copie .mcp.json dans le projet hôte
-                .mcp.json       Template de configuration MCP
+                manifest.json                  Copie hook + cursor rules, gitignore /code-context-out/
+                .claude/settings.json          Hook SessionStart pour projets sans config Claude
+                .claude/hooks/code-context-rebuild.sh
+                .cursor/rules/code-context.md
+resources/
+    agents/
+        claude-code/       Miroir hors-recipe (.claude/settings.json + hook rebuild)
+        cursor/            Miroir hors-recipe (.cursor/rules/code-context.md)
 ```
 
-## Roadmap (reste à faire)
-
-- Durcir et étendre la suite de tests d'intégration.
-- Exécuter systématiquement phpstan/php-cs-fixer en CI.
-
 ## Qualité de code
-
-Scripts Composer disponibles :
 
 - `composer test` (PHPUnit)
 - `composer lint` (PHPStan)
 - `composer fix` (php-cs-fixer)
-
-Fichiers de config inclus :
-
-- `phpunit.xml.dist`
-- `phpstan.neon`
-- `.php-cs-fixer.php`

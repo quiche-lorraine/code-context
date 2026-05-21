@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "symfony-ai-mate": {
+      "type": "stdio",
+      "command": "vendor/bin/mate",
+      "args": ["serve", "--force-keep-alive"]
+    }
+  }
+}

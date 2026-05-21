@@ -1,5 +1,15 @@
 {
-    "copy-from-recipe": {
-        ".mcp.json": ".mcp.json"
-    }
+  "copy-from-recipe": {
+    ".claude/settings.json": ".claude/settings.json",
+    ".claude/hooks/code-context-rebuild.sh": ".claude/hooks/code-context-rebuild.sh",
+    ".cursor/rules/code-context.md": ".cursor/rules/code-context.md"
+  },
+  "gitignore": [
+    "/code-context-out/"
+  ],
+  "post-install-output": [
+    "<info>code-context</info> recipe applied.",
+    "Run <comment>vendor/bin/code-context init --agent=mcp</comment> to register the MCP server in <comment>.mcp.json</comment> (merges with existing servers, won't overwrite).",
+    "Then <comment>vendor/bin/code-context generate</comment> to build the first index."
+  ]
 }
