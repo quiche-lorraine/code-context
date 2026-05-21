@@ -4,19 +4,19 @@ CLI standalone (basé sur `symfony/console`) qui analyse une base de code PHP et
 
 > Statut : **Phase 2 en cours**. Le socle est opérationnel : commandes `init`, `generate`, `serve`, validation stricte de config, architecture extracteurs, détection Symfony, fichiers `.md` thématiques.
 
-## Installation dans un projet Symfony
+## Installation
 
 ```bash
 composer require --dev quiche-lorraine/code-context
 ```
 
-Puis initialisez la configuration des agents (choisir un ou plusieurs) :
+Puis initialisez la configuration des agents :
 
 ```bash
 vendor/bin/code-context init --agent=mcp         # merge .mcp.json (préserve les autres serveurs)
 vendor/bin/code-context init --agent=claude-code  # écrit .claude/settings.json + hook rebuild
 vendor/bin/code-context init --agent=cursor       # écrit .cursor/rules/code-context.md
-vendor/bin/code-context init --agent=all          # les trois agents
+vendor/bin/code-context init --agent=all          # les trois agents d'un coup
 ```
 
 Puis générez le premier index :
@@ -24,12 +24,6 @@ Puis générez le premier index :
 ```bash
 vendor/bin/code-context generate
 ```
-
-> **Note Symfony Flex** : la recipe (`recipes/quiche-lorraine/code-context/dev-main/`) existe
-> dans ce dépôt mais nécessite un serveur d'endpoint Flex compatible REST pour être
-> auto-appliquée. GitHub raw URLs ne suffisent pas (Flex envoie des appels
-> `GET /p/{vendor}/{package}.json` que les URLs statiques ne peuvent pas servir).
-> Utiliser `init --agent=...` à la place est la procédure recommandée.
 
 ## Commande `init --agent`
 
@@ -43,9 +37,9 @@ vendor/bin/code-context init --agent=mcp --dry-run  # affiche le résultat sans 
 
 Le merge MCP est idempotent : une seconde exécution est no-op si la config est déjà à jour.
 
-Pour `--agent=claude-code` et `--agent=cursor` : si le fichier cible existe déjà, la commande l'ignore et affiche un message « already exists, skipping ». Pas de clobber.
+Pour `--agent=claude-code` et `--agent=cursor` : si le fichier cible existe déjà, la commande l'ignore (pas de clobber).
 
-**Projets avec un `session-start.sh` existant** : la recipe crée `.claude/hooks/code-context-rebuild.sh` mais ne modifie pas un `settings.json` existant. Ajoutez simplement l'appel dans votre orchestrateur :
+**Projets avec un `session-start.sh` existant** : ajoutez l'appel au hook depuis votre orchestrateur :
 
 ```bash
 if [ -x .claude/hooks/code-context-rebuild.sh ]; then
@@ -71,14 +65,6 @@ Sortie générée dans `<output.directory>` (par défaut `code-context-out/`) :
 
 Le fichier `.claude/hooks/code-context-rebuild.sh` (installé par `init --agent=claude-code`) reconstruit l'index à chaque démarrage de session Claude Code.
 
-Si le projet a déjà un `session-start.sh`, appelez simplement ce script depuis celui-ci :
-
-```bash
-if [ -x .claude/hooks/code-context-rebuild.sh ]; then
-    .claude/hooks/code-context-rebuild.sh
-fi
-```
-
 ## Architecture
 
 ```
@@ -95,14 +81,7 @@ src/
         ConfigSchema       Schéma strict via symfony/config
     Detector/
         SymfonyDetector    Détection du framework Symfony
-    Extractor/
-        ExtractorInterface
-        ExtractorRegistry
-        ComposerExtractor
-        DocsExtractor
-        PhpStructureExtractor
-        SymfonyExtractor
-        Symfony/*          Routes, services, entities, commands
+    Extractor/             ComposerExtractor, PhpStructureExtractor, SymfonyExtractor, ...
     Kernel/
         ProjectContext     Résolution des chemins du projet cible
     Mcp/
@@ -121,18 +100,13 @@ src/
 config/
     default.yaml           Configuration par défaut bundled
 recipes/
-    index.json             Index de recipe (structure Flex, sans endpoint auto-apply)
-    quiche-lorraine/
-        code-context/
-            dev-main/
-                manifest.json                  gitignore /code-context-out/, copie hook + cursor
-                .claude/settings.json          Hook SessionStart pour projets sans config Claude
-                .claude/hooks/code-context-rebuild.sh
-                .cursor/rules/code-context.md
-resources/
-    agents/
-        claude-code/       Source pour init --agent=claude-code
-        cursor/            Source pour init --agent=cursor
+    quiche-lorraine/code-context/dev-main/
+        manifest.json      gitignore /code-context-out/, copie hook + cursor rules
+        .claude/           settings.json + hooks/code-context-rebuild.sh
+        .cursor/           rules/code-context.md
+resources/agents/
+    claude-code/           Source pour init --agent=claude-code
+    cursor/                Source pour init --agent=cursor
 ```
 
 ## Qualité de code
