@@ -4,39 +4,19 @@ CLI standalone (basé sur `symfony/console`) qui analyse une base de code PHP et
 
 > Statut : **Phase 2 en cours**. Le socle est opérationnel : commandes `init`, `generate`, `serve`, validation stricte de config, architecture extracteurs, détection Symfony, fichiers `.md` thématiques.
 
-## Installation dans un projet Symfony Flex
-
-Déclarez l'endpoint Flex privé dans le `composer.json` du projet hôte :
-
-```json
-{
-    "extra": {
-        "symfony": {
-            "endpoint": [
-                "https://raw.githubusercontent.com/quiche-lorraine/code-context/main/recipes",
-                "flex://defaults"
-            ]
-        }
-    }
-}
-```
-
-Puis :
+## Installation dans un projet Symfony
 
 ```bash
 composer require --dev quiche-lorraine/code-context
 ```
 
-Symfony Flex applique la recette automatiquement :
-- crée `.claude/hooks/code-context-rebuild.sh` (hook SessionStart)
-- crée `.cursor/rules/code-context.md` (règles Cursor)
-- ajoute `/code-context-out/` au `.gitignore`
-- si le projet n'a pas encore de `.claude/settings.json`, le crée avec le hook SessionStart pré-câblé
-
-Enregistrez ensuite le serveur MCP (merge non-destructif, préserve les serveurs existants) :
+Puis initialisez la configuration des agents (choisir un ou plusieurs) :
 
 ```bash
-vendor/bin/code-context init --agent=mcp
+vendor/bin/code-context init --agent=mcp         # merge .mcp.json (préserve les autres serveurs)
+vendor/bin/code-context init --agent=claude-code  # écrit .claude/settings.json + hook rebuild
+vendor/bin/code-context init --agent=cursor       # écrit .cursor/rules/code-context.md
+vendor/bin/code-context init --agent=all          # les trois agents
 ```
 
 Puis générez le premier index :
@@ -45,13 +25,11 @@ Puis générez le premier index :
 vendor/bin/code-context generate
 ```
 
-## Installation sans Symfony Flex
-
-```bash
-composer require --dev quiche-lorraine/code-context
-vendor/bin/code-context init --agent=all   # configure MCP + Claude Code + Cursor
-vendor/bin/code-context generate
-```
+> **Note Symfony Flex** : la recipe (`recipes/quiche-lorraine/code-context/dev-main/`) existe
+> dans ce dépôt mais nécessite un serveur d'endpoint Flex compatible REST pour être
+> auto-appliquée. GitHub raw URLs ne suffisent pas (Flex envoie des appels
+> `GET /p/{vendor}/{package}.json` que les URLs statiques ne peuvent pas servir).
+> Utiliser `init --agent=...` à la place est la procédure recommandée.
 
 ## Commande `init --agent`
 
@@ -67,7 +45,7 @@ Le merge MCP est idempotent : une seconde exécution est no-op si la config est 
 
 Pour `--agent=claude-code` et `--agent=cursor` : si le fichier cible existe déjà, la commande l'ignore et affiche un message « already exists, skipping ». Pas de clobber.
 
-**Projets avec un `session-start.sh` existant** : la recette crée `.claude/hooks/code-context-rebuild.sh` mais ne modifie pas un `settings.json` existant. Ajoutez simplement l'appel dans votre orchestrateur :
+**Projets avec un `session-start.sh` existant** : la recipe crée `.claude/hooks/code-context-rebuild.sh` mais ne modifie pas un `settings.json` existant. Ajoutez simplement l'appel dans votre orchestrateur :
 
 ```bash
 if [ -x .claude/hooks/code-context-rebuild.sh ]; then
@@ -88,6 +66,18 @@ Sortie générée dans `<output.directory>` (par défaut `code-context-out/`) :
 - `context.json` : représentation structurée consommée par le serveur MCP.
 - `AGENTS.md` : vue narrative regroupée par namespace.
 - `architecture.md`, `routes.md`, `entities.md`, `services.md`, `commands.md` : vues Symfony spécialisées.
+
+## Hook SessionStart (Claude Code)
+
+Le fichier `.claude/hooks/code-context-rebuild.sh` (installé par `init --agent=claude-code`) reconstruit l'index à chaque démarrage de session Claude Code.
+
+Si le projet a déjà un `session-start.sh`, appelez simplement ce script depuis celui-ci :
+
+```bash
+if [ -x .claude/hooks/code-context-rebuild.sh ]; then
+    .claude/hooks/code-context-rebuild.sh
+fi
+```
 
 ## Architecture
 
@@ -131,18 +121,18 @@ src/
 config/
     default.yaml           Configuration par défaut bundled
 recipes/
-    index.json             Endpoint Symfony Flex privé
+    index.json             Index de recipe (structure Flex, sans endpoint auto-apply)
     quiche-lorraine/
         code-context/
             dev-main/
-                manifest.json                  Copie hook + cursor rules, gitignore /code-context-out/
+                manifest.json                  gitignore /code-context-out/, copie hook + cursor
                 .claude/settings.json          Hook SessionStart pour projets sans config Claude
                 .claude/hooks/code-context-rebuild.sh
                 .cursor/rules/code-context.md
 resources/
     agents/
-        claude-code/       Miroir hors-recipe (.claude/settings.json + hook rebuild)
-        cursor/            Miroir hors-recipe (.cursor/rules/code-context.md)
+        claude-code/       Source pour init --agent=claude-code
+        cursor/            Source pour init --agent=cursor
 ```
 
 ## Qualité de code
