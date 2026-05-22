@@ -53,6 +53,12 @@ final class ClassIndex
     /** @var list<array<string, mixed>> */
     private array $servicesConfigured = [];
 
+    /** @var list<array<string, mixed>> */
+    private array $eventSubscribers = [];
+
+    /** @var list<array<string, mixed>> */
+    private array $workflows = [];
+
     /**
      * Inverted index: lowercased last-segment of an attribute name → list of usages.
      *
@@ -157,6 +163,13 @@ final class ClassIndex
             : [];
         $index->servicesConfigured = \is_array($services['configured'] ?? null)
             ? array_values(array_filter($services['configured'], 'is_array'))
+            : [];
+
+        $index->eventSubscribers = \is_array($symfony['event_subscribers'] ?? null)
+            ? array_values(array_filter($symfony['event_subscribers'], 'is_array'))
+            : [];
+        $index->workflows = \is_array($symfony['workflows'] ?? null)
+            ? array_values(array_filter($symfony['workflows'], 'is_array'))
             : [];
 
         return $index;
@@ -303,6 +316,123 @@ final class ClassIndex
     public function getRoute(string $name): ?array
     {
         return $this->routeByName[$name] ?? null;
+    }
+
+    /**
+     * Returns all Symfony Security Voters (classes extending Voter).
+     *
+     * @return list<string>
+     */
+    public function findVoters(): array
+    {
+        $voterClass = 'Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter';
+
+        return $this->subclasses[$voterClass] ?? [];
+    }
+
+    /**
+     * Returns all Messenger handler entries (classes carrying #[AsMessageHandler]).
+     *
+     * @return list<array{class: string, method: string, message: ?string, raw: string}>
+     */
+    public function findMessageHandlers(): array
+    {
+        $entries = $this->attributeIndex[strtolower('AsMessageHandler')] ?? [];
+        $handlers = [];
+        $seen = [];
+        foreach ($entries as $entry) {
+            $key = $entry['fqcn'] . '|' . ($entry['member'] ?? '');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $handlers[] = [
+                'class' => $entry['fqcn'],
+                'method' => $entry['member'] ?? '__invoke',
+                'message' => $this->resolveMessageType($entry['fqcn'], $entry['member']),
+                'raw' => $entry['raw'],
+            ];
+        }
+
+        return $handlers;
+    }
+
+    /**
+     * Returns event subscribers, optionally filtered by event name (substring match).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getSubscribers(?string $event = null): array
+    {
+        if (null === $event || '' === $event) {
+            return $this->eventSubscribers;
+        }
+
+        $needle = strtolower($event);
+
+        $result = [];
+        foreach ($this->eventSubscribers as $subscriber) {
+            $matched = array_values(array_filter(
+                (array) ($subscriber['events'] ?? []),
+                static function ($entry) use ($needle): bool {
+                    return \is_array($entry)
+                        && str_contains(strtolower((string) ($entry['event'] ?? '')), $needle);
+                },
+            ));
+            if ([] !== $matched) {
+                $result[] = array_merge($subscriber, ['events' => $matched]);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getWorkflows(): array
+    {
+        return $this->workflows;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getWorkflow(string $name): ?array
+    {
+        foreach ($this->workflows as $workflow) {
+            if (($workflow['name'] ?? null) === $name) {
+                return $workflow;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reads the first parameter type of the handler method (typically __invoke) to identify the message class.
+     */
+    private function resolveMessageType(string $fqcn, ?string $methodName): ?string
+    {
+        if (null === $methodName) {
+            $methodName = '__invoke';
+        }
+        $class = $this->byFqcn[$fqcn] ?? null;
+        if (null === $class) {
+            return null;
+        }
+        foreach ((array) ($class['methods'] ?? []) as $method) {
+            if (!\is_array($method) || ($method['name'] ?? null) !== $methodName) {
+                continue;
+            }
+            $params = (array) ($method['parameters'] ?? []);
+            $first = $params[0] ?? null;
+            if (\is_array($first) && isset($first['type']) && \is_string($first['type'])) {
+                return $first['type'];
+            }
+        }
+
+        return null;
     }
 
     /**

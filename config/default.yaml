@@ -77,6 +77,8 @@ code_context:
             services: true
             entities: true
             commands: true
+            event_subscribers: true
+            workflows: true
         vendor_contracts:
             # Index interfaces and abstract classes from vendor that are referenced
             # by the project code (extends/implements/constructor/property types).
