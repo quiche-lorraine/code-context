@@ -116,6 +116,13 @@ final class McpServer
             'find_usages' => $this->toolFindUsages($args),
             'get_routes' => $this->toolGetRoutes($args),
             'get_namespace' => $this->toolGetNamespace($args),
+            'find_by_attribute' => $this->toolFindByAttribute($args),
+            'get_commands' => $this->toolGetCommands(),
+            'get_command' => $this->toolGetCommand($args),
+            'list_entities' => $this->toolListEntities(),
+            'get_entity' => $this->toolGetEntity($args),
+            'get_entity_enums' => $this->toolGetEntityEnums(),
+            'find_service' => $this->toolFindService($args),
             default => throw new \InvalidArgumentException("Unknown tool: {$name}"),
         };
 
@@ -231,6 +238,13 @@ final class McpServer
                 $type = null !== ($prop['type'] ?? null) ? (string) $prop['type'] . ' ' : '';
                 $readonly = ($prop['readonly'] ?? false) ? 'readonly ' : '';
                 $lines[] = "- {$visibility} {$readonly}{$type}\${$prop['name']}";
+                $propAttrs = array_values(array_filter((array) ($prop['attributes'] ?? []), 'is_string'));
+                if ([] !== $propAttrs) {
+                    $lines[] = '  - Attributes: ' . implode(', ', array_map(
+                        static fn (string $a): string => '`#[' . $a . ']`',
+                        $propAttrs,
+                    ));
+                }
             }
         }
 
@@ -256,6 +270,13 @@ final class McpServer
                     ? ' — ' . $method['summary']
                     : '';
                 $lines[] = "- {$visibility} {$static}{$sig}{$summary}";
+                $methodAttrs = array_values(array_filter((array) ($method['attributes'] ?? []), 'is_string'));
+                if ([] !== $methodAttrs) {
+                    $lines[] = '  - Attributes: ' . implode(', ', array_map(
+                        static fn (string $a): string => '`#[' . $a . ']`',
+                        $methodAttrs,
+                    ));
+                }
             }
         }
 
@@ -385,6 +406,206 @@ final class McpServer
         return implode("\n", $lines);
     }
 
+    /** @param array<string, mixed> $args */
+    private function toolFindByAttribute(array $args): string
+    {
+        $attribute = (string) ($args['attribute'] ?? '');
+        if ('' === $attribute) {
+            throw new \InvalidArgumentException('attribute is required');
+        }
+        $scope = (string) ($args['scope'] ?? 'all');
+        if (!\in_array($scope, ['class', 'method', 'property', 'all'], true)) {
+            throw new \InvalidArgumentException('scope must be one of: class, method, property, all');
+        }
+
+        $hits = $this->index->findByAttribute($attribute, $scope);
+        if ([] === $hits) {
+            $scopeLabel = 'all' === $scope ? '' : " on {$scope}s";
+            return "No usages of attribute \"{$attribute}\" found{$scopeLabel}.";
+        }
+
+        $sections = [
+            'class' => ['title' => '### Classes', 'format' => static fn (array $h): string => "- `{$h['fqcn']}` — `#[{$h['raw']}]`"],
+            'method' => ['title' => '### Methods', 'format' => static fn (array $h): string => "- `{$h['fqcn']}::{$h['member']}` — `#[{$h['raw']}]`"],
+            'property' => ['title' => '### Properties', 'format' => static fn (array $h): string => "- `{$h['fqcn']}::\${$h['member']}` — `#[{$h['raw']}]`"],
+        ];
+
+        $lines = ['Attribute usages for `' . $attribute . '` (' . \count($hits) . "):\n"];
+
+        foreach ($sections as $scopeKey => $section) {
+            $filtered = array_values(array_filter(
+                $hits,
+                static fn (array $h): bool => $h['scope'] === $scopeKey,
+            ));
+            if ([] === $filtered) {
+                continue;
+            }
+            $lines[] = $section['title'];
+            foreach ($filtered as $hit) {
+                $lines[] = $section['format']($hit);
+            }
+            $lines[] = '';
+        }
+
+        return rtrim(implode("\n", $lines));
+    }
+
+    private function toolGetCommands(): string
+    {
+        $commands = $this->index->getCommands();
+        if ([] === $commands) {
+            return 'No Symfony commands found in the index.';
+        }
+
+        $lines = ['## Symfony Commands (' . \count($commands) . ")\n"];
+        foreach ($commands as $command) {
+            $name = (string) ($command['name'] ?? '<unknown>');
+            $description = (string) ($command['description'] ?? '');
+            $class = (string) ($command['class'] ?? '');
+            $descPart = '' !== $description ? " — {$description}" : '';
+            $lines[] = "- `{$name}`{$descPart} (in `{$class}`)";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolGetCommand(array $args): string
+    {
+        $name = (string) ($args['name'] ?? '');
+        if ('' === $name) {
+            throw new \InvalidArgumentException('name is required');
+        }
+
+        $command = $this->index->getCommand($name);
+        if (null === $command) {
+            return "Command \"{$name}\" not found in the index.";
+        }
+
+        $lines = [];
+        $lines[] = "## {$name}";
+        $lines[] = '';
+        $lines[] = '**Class:** `' . (string) ($command['class'] ?? '') . '`';
+        $lines[] = '**File:** `' . (string) ($command['file'] ?? '') . '`';
+        $description = (string) ($command['description'] ?? '');
+        if ('' !== $description) {
+            $lines[] = '**Description:** ' . $description;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function toolListEntities(): string
+    {
+        $entities = $this->index->getEntities();
+        if ([] === $entities) {
+            return 'No Doctrine entities found in the index.';
+        }
+
+        $lines = ['## Doctrine Entities (' . \count($entities) . ")\n"];
+        foreach ($entities as $entity) {
+            $class = (string) ($entity['class'] ?? '');
+            $file = (string) ($entity['file'] ?? '');
+            $lines[] = "- `{$class}` (`{$file}`)";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolGetEntity(array $args): string
+    {
+        $class = (string) ($args['class'] ?? '');
+        if ('' === $class) {
+            throw new \InvalidArgumentException('class is required');
+        }
+
+        $entity = $this->index->getEntity($class);
+        if (null === $entity) {
+            return "Entity \"{$class}\" not found in the index.";
+        }
+
+        $lines = [];
+        $lines[] = '## Entity ' . (string) ($entity['class'] ?? $class);
+        $lines[] = '';
+        $lines[] = '**File:** `' . (string) ($entity['file'] ?? '') . '`';
+
+        $props = array_values(array_filter((array) ($entity['properties'] ?? []), 'is_array'));
+        if ([] !== $props) {
+            $lines[] = '';
+            $lines[] = '### Properties';
+            foreach ($props as $prop) {
+                $visibility = (string) ($prop['visibility'] ?? 'public');
+                $type = null !== ($prop['type'] ?? null) ? (string) $prop['type'] . ' ' : '';
+                $name = (string) ($prop['name'] ?? '');
+                $lines[] = "- {$visibility} {$type}\${$name}";
+                $propAttrs = array_values(array_filter((array) ($prop['attributes'] ?? []), 'is_string'));
+                if ([] !== $propAttrs) {
+                    $lines[] = '  - Attributes: ' . implode(', ', array_map(
+                        static fn (string $a): string => '`#[' . $a . ']`',
+                        $propAttrs,
+                    ));
+                }
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function toolGetEntityEnums(): string
+    {
+        $enums = $this->index->getEntityEnums();
+        if ([] === $enums) {
+            return 'No enums found in the index.';
+        }
+
+        $lines = ['## Entity Enums (' . \count($enums) . ")\n"];
+        foreach ($enums as $enum) {
+            $class = (string) ($enum['class'] ?? '');
+            $cases = array_values(array_filter((array) ($enum['cases'] ?? []), 'is_string'));
+            $casesStr = [] !== $cases ? ': ' . implode(', ', $cases) : '';
+            $lines[] = "- `{$class}`{$casesStr}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolFindService(array $args): string
+    {
+        $query = (string) ($args['query'] ?? '');
+        $result = $this->index->findService($query);
+
+        $configured = $result['configured'];
+        $autowired = $result['autowired'];
+
+        if ([] === $configured && [] === $autowired) {
+            return "No services matching \"{$query}\".";
+        }
+
+        $lines = [];
+        if ([] !== $configured) {
+            $lines[] = '### Configured services (' . \count($configured) . ')';
+            foreach ($configured as $svc) {
+                $id = (string) ($svc['id'] ?? '');
+                $definition = \is_array($svc['definition'] ?? null) ? $svc['definition'] : [];
+                $class = isset($definition['class']) ? (string) $definition['class'] : null;
+                $classPart = null !== $class && '' !== $class ? " → `{$class}`" : '';
+                $lines[] = "- `{$id}`{$classPart}";
+            }
+            $lines[] = '';
+        }
+        if ([] !== $autowired) {
+            $lines[] = '### Autowired services (' . \count($autowired) . ')';
+            foreach ($autowired as $svc) {
+                $fqcn = (string) ($svc['fqcn'] ?? '');
+                $lines[] = "- `{$fqcn}`";
+            }
+        }
+
+        return rtrim(implode("\n", $lines));
+    }
+
     // -------------------------------------------------------------------------
     // Tool definitions (JSON Schema)
     // -------------------------------------------------------------------------
@@ -470,6 +691,66 @@ final class McpServer
                     'required' => ['namespace'],
                 ],
             ],
+            [
+                'name' => 'find_by_attribute',
+                'description' => 'Find classes, methods or properties carrying a given PHP attribute (e.g. Route, IsGranted, ORM\\Column). Matching is case-insensitive and accepts short or fully-qualified attribute names.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'attribute' => ['type' => 'string', 'description' => 'Attribute name (short or FQN)'],
+                        'scope' => ['type' => 'string', 'enum' => ['class', 'method', 'property', 'all'], 'description' => 'Optional scope filter (default: all)'],
+                    ],
+                    'required' => ['attribute'],
+                ],
+            ],
+            [
+                'name' => 'get_commands',
+                'description' => 'List all Symfony console commands declared via #[AsCommand].',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'get_command',
+                'description' => 'Get details of a Symfony console command by its declared name.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'Command name as declared in #[AsCommand(name: ...)]'],
+                    ],
+                    'required' => ['name'],
+                ],
+            ],
+            [
+                'name' => 'list_entities',
+                'description' => 'List all Doctrine entities (classes annotated with ORM\\Entity).',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'get_entity',
+                'description' => 'Get a Doctrine entity with its properties, types, and ORM attributes.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'class' => ['type' => 'string', 'description' => 'Entity FQCN (or short name for unambiguous matches)'],
+                    ],
+                    'required' => ['class'],
+                ],
+            ],
+            [
+                'name' => 'get_entity_enums',
+                'description' => 'List all PHP enums declared in the project (often used as Doctrine enum types).',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'find_service',
+                'description' => 'Search the Symfony service container: matches configured services by id and autowired services by FQCN/namespace.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'query' => ['type' => 'string', 'description' => 'Substring to match against service ids, FQCNs or namespaces'],
+                    ],
+                    'required' => ['query'],
+                ],
+            ],
         ];
     }
 
@@ -493,6 +774,9 @@ final class McpServer
         $json = json_encode($payload, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
         if (false !== $json) {
             fwrite(STDOUT, $json . "\n");
+            // Force flush: PHP buffers stdout fully when connected to a pipe,
+            // which causes large MCP responses to hang until the buffer fills.
+            fflush(STDOUT);
         }
     }
 }
