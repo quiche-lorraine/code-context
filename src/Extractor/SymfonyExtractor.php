@@ -50,11 +50,23 @@ final class SymfonyExtractor implements ExtractorInterface
         $context->symfony['detected'] = $detection['detected'];
         $context->symfony['version'] = $detection['version'];
 
-        $this->routeExtractor->extract($project, $config, $context);
-        $this->serviceExtractor->extract($project, $config, $context);
-        $this->entityExtractor->extract($project, $config, $context);
-        $this->consoleExtractor->extract($project, $config, $context);
-        $this->eventSubscriberExtractor->extract($project, $config, $context);
-        $this->workflowExtractor->extract($project, $config, $context);
+        if ($config->symfonyRoutesEnabled()) {
+            $this->routeExtractor->extract($project, $config, $context);
+        }
+        if ($config->symfonyServicesEnabled()) {
+            $this->serviceExtractor->extract($project, $config, $context);
+        }
+        if ($config->symfonyEntitiesEnabled()) {
+            $this->entityExtractor->extract($project, $config, $context);
+        }
+        if ($config->symfonyCommandsEnabled()) {
+            $this->consoleExtractor->extract($project, $config, $context);
+        }
+        if ($config->symfonyEventSubscribersEnabled()) {
+            $this->eventSubscriberExtractor->extract($project, $config, $context);
+        }
+        if ($config->symfonyWorkflowsEnabled()) {
+            $this->workflowExtractor->extract($project, $config, $context);
+        }
     }
 }

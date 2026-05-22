@@ -102,6 +102,8 @@ final class ConfigSchema
                                 ->booleanNode('services')->defaultTrue()->end()
                                 ->booleanNode('entities')->defaultTrue()->end()
                                 ->booleanNode('commands')->defaultTrue()->end()
+                                ->booleanNode('event_subscribers')->defaultTrue()->end()
+                                ->booleanNode('workflows')->defaultTrue()->end()
                             ->end()
                         ->end()
                         ->arrayNode('vendor_contracts')

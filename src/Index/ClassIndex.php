@@ -319,15 +319,21 @@ final class ClassIndex
     }
 
     /**
-     * Returns all Symfony Security Voters (classes extending Voter).
+     * Returns all Symfony Security Voters (transitive subclasses of Voter or implementors of VoterInterface).
      *
      * @return list<string>
      */
     public function findVoters(): array
     {
         $voterClass = 'Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter';
+        $voterInterface = 'Symfony\\Component\\Security\\Core\\Authorization\\Voter\\VoterInterface';
 
-        return $this->subclasses[$voterClass] ?? [];
+        $subclasses = $this->findSubclasses($voterClass);
+        $implementors = $this->implementors[$voterInterface] ?? [];
+
+        $all = array_unique(array_merge($subclasses, $implementors));
+
+        return array_values($all);
     }
 
     /**
@@ -448,15 +454,31 @@ final class ClassIndex
     }
 
     /**
-     * Returns FQCNs of all classes extending the given class.
+     * Returns FQCNs of all classes extending the given class (transitive).
      *
      * @return list<string>
      */
     public function findSubclasses(string $parentFqcn): array
     {
-        return $this->subclasses[$parentFqcn]
-            ?? $this->subclasses[$this->resolveShortName($parentFqcn)]
-            ?? [];
+        $resolved = $this->subclasses[$parentFqcn] ?? $this->subclasses[$this->resolveShortName($parentFqcn)] ?? null;
+        if (null === $resolved) {
+            return [];
+        }
+
+        $all = [];
+        $queue = $resolved;
+        while ([] !== $queue) {
+            $fqcn = array_shift($queue);
+            if (isset($all[$fqcn])) {
+                continue;
+            }
+            $all[$fqcn] = true;
+            foreach ($this->subclasses[$fqcn] ?? [] as $child) {
+                $queue[] = $child;
+            }
+        }
+
+        return array_keys($all);
     }
 
     /**

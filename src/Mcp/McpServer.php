@@ -17,10 +17,21 @@ final class McpServer
 {
     private const PROTOCOL_VERSION = '2024-11-05';
     private const SERVER_NAME = 'code-context';
-    private const SERVER_VERSION = '0.1.0';
 
     public function __construct(private readonly ClassIndex $index)
     {
+    }
+
+    private static function serverVersion(): string
+    {
+        if (class_exists(\Composer\InstalledVersions::class)) {
+            $v = \Composer\InstalledVersions::getPrettyVersion('quiche-lorraine/code-context');
+            if (null !== $v) {
+                return $v;
+            }
+        }
+
+        return 'dev';
     }
 
     public function run(): void
@@ -87,7 +98,7 @@ final class McpServer
         return [
             'protocolVersion' => self::PROTOCOL_VERSION,
             'capabilities' => ['tools' => new \stdClass()],
-            'serverInfo' => ['name' => self::SERVER_NAME, 'version' => self::SERVER_VERSION],
+            'serverInfo' => ['name' => self::SERVER_NAME, 'version' => self::serverVersion()],
         ];
     }
 
@@ -910,7 +921,7 @@ final class McpServer
             ],
             [
                 'name' => 'find_usages',
-                'description' => 'Find all classes that reference a given type in their constructor parameters or properties.',
+                'description' => 'Find all classes that reference a given type in their constructor parameters or properties (DI / type hints). Does not detect calls within method bodies.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
