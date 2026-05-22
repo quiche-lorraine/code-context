@@ -23,7 +23,7 @@ final class InitCommand extends Command
     private const MCP_SERVER_CONFIG = [
         'type' => 'stdio',
         'command' => 'vendor/bin/code-context',
-        'args' => ['serve', '--index=code-context-out/context.json'],
+        'args' => ['serve', '--index=.code-context/context.json'],
     ];
 
     protected function configure(): void

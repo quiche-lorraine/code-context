@@ -24,10 +24,10 @@ Use these tools instead of `grep` or reading individual files for symbol lookup.
 
 ## Narrative overview
 
-Start every task by reading `code-context-out/AGENTS.md` — it provides a
+Start every task by reading `.code-context/AGENTS.md` — it provides a
 namespace-by-namespace tour of the codebase with classes and their public API.
 
-Other views in `code-context-out/`:
+Other views in `.code-context/`:
 - `architecture.md` — volume metrics and global structure
 - `entities.md` — Doctrine entities and their fields
 - `routes.md` — all API/Symfony routes
