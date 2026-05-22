@@ -159,19 +159,24 @@ final class McpServer
     {
         $query = (string) ($args['query'] ?? '');
         $kind = isset($args['kind']) ? (string) $args['kind'] : null;
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
 
         if ('' === $query) {
             throw new \InvalidArgumentException('query is required');
         }
 
         $results = $this->index->searchSymbol($query, $kind);
+        $total = \count($results);
 
         if ([] === $results) {
             return "No symbols found matching \"{$query}\".";
         }
 
-        $lines = ["Found " . \count($results) . " symbol(s) matching \"{$query}\":\n"];
-        foreach ($results as $r) {
+        $page = array_slice($results, $offset, $limit);
+        $pageInfo = "Symbols ({$total}) showing {$offset}–" . ($offset + \count($page) - 1) . ":\n";
+        $lines = [$pageInfo];
+        foreach ($page as $r) {
             $summary = '' !== (string) ($r['summary'] ?? '') ? ' — ' . $r['summary'] : '';
             $implements = [] !== (array) ($r['implements'] ?? []) ? ' implements ' . implode(', ', (array) $r['implements']) : '';
             $extends = null !== ($r['extends'] ?? null) ? ' extends ' . $r['extends'] : '';
@@ -431,15 +436,19 @@ final class McpServer
         if ('' === $namespace) {
             throw new \InvalidArgumentException('namespace is required');
         }
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
 
         $classes = $this->index->getNamespace($namespace);
+        $total = \count($classes);
 
         if ([] === $classes) {
             return "No classes found in namespace \"{$namespace}\".";
         }
 
-        $lines = ["Classes in `{$namespace}` (" . \count($classes) . "):\n"];
-        foreach ($classes as $class) {
+        $page = array_slice($classes, $offset, $limit);
+        $lines = ["Classes in `{$namespace}` ({$total}) showing {$offset}–" . ($offset + \count($page) - 1) . ":\n"];
+        foreach ($page as $class) {
             $kind = $class['kind'] ?? 'class';
             $summary = null !== ($class['summary'] ?? null) ? ' — ' . $class['summary'] : '';
             $lines[] = "- [{$kind}] `{$class['fqcn']}`{$summary}";
@@ -459,12 +468,18 @@ final class McpServer
         if (!\in_array($scope, ['class', 'method', 'property', 'all'], true)) {
             throw new \InvalidArgumentException('scope must be one of: class, method, property, all');
         }
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
 
         $hits = $this->index->findByAttribute($attribute, $scope);
+        $total = \count($hits);
+
         if ([] === $hits) {
             $scopeLabel = 'all' === $scope ? '' : " on {$scope}s";
             return "No usages of attribute \"{$attribute}\" found{$scopeLabel}.";
         }
+
+        $hits = array_slice($hits, $offset, $limit);
 
         $sections = [
             'class' => ['title' => '### Classes', 'format' => static fn (array $h): string => "- `{$h['fqcn']}` — `#[{$h['raw']}]`"],
@@ -472,7 +487,7 @@ final class McpServer
             'property' => ['title' => '### Properties', 'format' => static fn (array $h): string => "- `{$h['fqcn']}::\${$h['member']}` — `#[{$h['raw']}]`"],
         ];
 
-        $lines = ['Attribute usages for `' . $attribute . '` (' . \count($hits) . "):\n"];
+        $lines = ['Attribute usages for `' . $attribute . "` ({$total}) showing {$offset}–" . ($offset + \count($hits) - 1) . ":\n"];
 
         foreach ($sections as $scopeKey => $section) {
             $filtered = array_values(array_filter(
@@ -616,6 +631,9 @@ final class McpServer
     private function toolFindService(array $args): string
     {
         $query = (string) ($args['query'] ?? '');
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+
         $result = $this->index->findService($query);
 
         $configured = $result['configured'];
@@ -625,10 +643,14 @@ final class McpServer
             return "No services matching \"{$query}\".";
         }
 
+        $totalConfigured = \count($configured);
+        $totalAutowired = \count($autowired);
         $lines = [];
+
         if ([] !== $configured) {
-            $lines[] = '### Configured services (' . \count($configured) . ')';
-            foreach ($configured as $svc) {
+            $page = array_slice($configured, $offset, $limit);
+            $lines[] = "### Configured services ({$totalConfigured}) showing {$offset}–" . ($offset + \count($page) - 1);
+            foreach ($page as $svc) {
                 $id = (string) ($svc['id'] ?? '');
                 $definition = \is_array($svc['definition'] ?? null) ? $svc['definition'] : [];
                 $class = isset($definition['class']) ? (string) $definition['class'] : null;
@@ -638,8 +660,9 @@ final class McpServer
             $lines[] = '';
         }
         if ([] !== $autowired) {
-            $lines[] = '### Autowired services (' . \count($autowired) . ')';
-            foreach ($autowired as $svc) {
+            $page = array_slice($autowired, $offset, $limit);
+            $lines[] = "### Autowired services ({$totalAutowired}) showing {$offset}–" . ($offset + \count($page) - 1);
+            foreach ($page as $svc) {
                 $fqcn = (string) ($svc['fqcn'] ?? '');
                 $lines[] = "- `{$fqcn}`";
             }
@@ -652,16 +675,22 @@ final class McpServer
     private function toolSearchMethod(array $args): string
     {
         $query = (string) ($args['query'] ?? '');
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+
         if ('' === $query) {
             throw new \InvalidArgumentException('query is required');
         }
 
         $results = $this->index->searchMethod($query);
+        $total = \count($results);
+
         if ([] === $results) {
             return "No methods found matching \"{$query}\".";
         }
 
-        $lines = ["Found " . \count($results) . " method(s) matching \"{$query}\":\n"];
+        $results = array_slice($results, $offset, $limit);
+        $lines = ["Methods ({$total}) showing {$offset}–" . ($offset + \count($results) - 1) . ":\n"];
         foreach ($results as $entry) {
             $fqcn = (string) $entry['class'];
             $method = $entry['method'];
@@ -699,6 +728,10 @@ final class McpServer
 
         $route = $this->index->getRoute($name);
         if (null === $route) {
+            if ($this->index->routeCount() > 0 && !$this->index->hasNamedRoutes()) {
+                return "Route \"{$name}\" not found.\nHint: the loaded index does not include route names — regenerate it with code-context >= 1.1.0 to enable get_route(name).";
+            }
+
             return "Route \"{$name}\" not found in the index.";
         }
 
@@ -761,6 +794,9 @@ final class McpServer
 
         if ([] === $subscribers) {
             $suffix = null !== $event && '' !== $event ? " for event \"{$event}\"" : '';
+            if (!$this->index->hasEventSubscribersSection()) {
+                return "No event subscribers found{$suffix}.\nHint: the loaded index does not include an event_subscribers section — regenerate it with code-context >= 1.1.0 to enable find_subscribers.";
+            }
 
             return "No event subscribers found{$suffix}.";
         }
@@ -820,6 +856,10 @@ final class McpServer
 
         $workflow = $this->index->getWorkflow($name);
         if (null === $workflow) {
+            if (!$this->index->hasWorkflowsSection()) {
+                return "Workflow \"{$name}\" not found.\nHint: the loaded index does not include a workflows section — regenerate it with code-context >= 1.1.0 to enable get_workflow.";
+            }
+
             return "Workflow \"{$name}\" not found in config/packages/.";
         }
 
@@ -876,12 +916,14 @@ final class McpServer
         return [
             [
                 'name' => 'search_symbol',
-                'description' => 'Search for classes, interfaces, traits, enums, or methods by name substring. Returns compact summaries.',
+                'description' => 'Search for classes, interfaces, traits, and enums by name substring. Returns compact summaries. Use search_method to find methods by name.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
                         'query' => ['type' => 'string', 'description' => 'Name substring to search for'],
                         'kind' => ['type' => 'string', 'enum' => ['class', 'interface', 'trait', 'enum'], 'description' => 'Optional kind filter'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of results to return (default: 50)'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of results to skip (default: 0)'],
                     ],
                     'required' => ['query'],
                 ],
@@ -960,6 +1002,8 @@ final class McpServer
                     'type' => 'object',
                     'properties' => [
                         'namespace' => ['type' => 'string', 'description' => 'Namespace prefix (e.g. "App\\\\Service")'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of classes to return (default: 50)'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of classes to skip (default: 0)'],
                     ],
                     'required' => ['namespace'],
                 ],
@@ -971,6 +1015,8 @@ final class McpServer
                     'type' => 'object',
                     'properties' => [
                         'query' => ['type' => 'string', 'description' => 'Method name substring to search for'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of results to return (default: 50)'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of results to skip (default: 0)'],
                     ],
                     'required' => ['query'],
                 ],
@@ -983,6 +1029,8 @@ final class McpServer
                     'properties' => [
                         'attribute' => ['type' => 'string', 'description' => 'Attribute name (short or FQN)'],
                         'scope' => ['type' => 'string', 'enum' => ['class', 'method', 'property', 'all'], 'description' => 'Optional scope filter (default: all)'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of results to return (default: 50)'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of results to skip (default: 0)'],
                     ],
                     'required' => ['attribute'],
                 ],
@@ -1031,13 +1079,15 @@ final class McpServer
                     'type' => 'object',
                     'properties' => [
                         'query' => ['type' => 'string', 'description' => 'Substring to match against service ids, FQCNs or namespaces'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of results per section to return (default: 50)'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of results to skip per section (default: 0)'],
                     ],
                     'required' => ['query'],
                 ],
             ],
             [
                 'name' => 'find_voters',
-                'description' => 'List all Symfony Security Voters (classes extending Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter).',
+                'description' => 'List all Symfony Security Voters (transitive subclasses of Voter or implementors of VoterInterface).',
                 'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
             ],
             [
