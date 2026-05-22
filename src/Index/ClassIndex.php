@@ -59,6 +59,15 @@ final class ClassIndex
     /** @var list<array<string, mixed>> */
     private array $workflows = [];
 
+    /** Whether the loaded index contains named routes (v1.1.0+ format). */
+    private bool $hasNamedRoutes = false;
+
+    /** Whether the loaded index contains an event_subscribers section. */
+    private bool $hasEventSubscribersSection = false;
+
+    /** Whether the loaded index contains a workflows section. */
+    private bool $hasWorkflowsSection = false;
+
     /**
      * Inverted index: lowercased last-segment of an attribute name → list of usages.
      *
@@ -165,14 +174,39 @@ final class ClassIndex
             ? array_values(array_filter($services['configured'], 'is_array'))
             : [];
 
+        $index->hasNamedRoutes = [] !== $index->routeByName;
+
+        $index->hasEventSubscribersSection = \array_key_exists('event_subscribers', $symfony);
         $index->eventSubscribers = \is_array($symfony['event_subscribers'] ?? null)
             ? array_values(array_filter($symfony['event_subscribers'], 'is_array'))
             : [];
+
+        $index->hasWorkflowsSection = \array_key_exists('workflows', $symfony);
         $index->workflows = \is_array($symfony['workflows'] ?? null)
             ? array_values(array_filter($symfony['workflows'], 'is_array'))
             : [];
 
         return $index;
+    }
+
+    public function hasNamedRoutes(): bool
+    {
+        return $this->hasNamedRoutes;
+    }
+
+    public function routeCount(): int
+    {
+        return \count($this->routes);
+    }
+
+    public function hasEventSubscribersSection(): bool
+    {
+        return $this->hasEventSubscribersSection;
+    }
+
+    public function hasWorkflowsSection(): bool
+    {
+        return $this->hasWorkflowsSection;
     }
 
     /**
@@ -245,23 +279,7 @@ final class ClassIndex
             }
         }
 
-        // Method name match — return containing class (deduplicated)
-        foreach ($this->byMethod as $mName => $entries) {
-            if (str_contains($mName, $q)) {
-                foreach ($entries as $entry) {
-                    $fqcn = $entry['class'];
-                    if (!isset($seen[$fqcn])) {
-                        $seen[$fqcn] = true;
-                        $class = $this->byFqcn[$fqcn] ?? null;
-                        if (null !== $class && $this->matchesKind($class, $kind)) {
-                            $hits[] = $this->summarize($class);
-                        }
-                    }
-                }
-            }
-        }
-
-        return array_slice($hits, 0, 30);
+        return $hits;
     }
 
     /**
@@ -305,7 +323,7 @@ final class ClassIndex
             }
         }
 
-        return array_slice($hits, 0, 50);
+        return $hits;
     }
 
     /**
