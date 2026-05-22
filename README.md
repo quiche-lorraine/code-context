@@ -100,10 +100,12 @@ src/
 config/
     default.yaml           Configuration par défaut bundled
 recipes/
-    quiche-lorraine/code-context/dev-main/
+    quiche-lorraine/code-context/1.0/
         manifest.json      gitignore /code-context-out/, copie hook + cursor rules
         .claude/           settings.json + hooks/code-context-rebuild.sh
         .cursor/           rules/code-context.md
+    quiche-lorraine/code-context/dev-main/
+        manifest.json      (idem, pour installation depuis la branche main)
 resources/agents/
     claude-code/           Source pour init --agent=claude-code
     cursor/                Source pour init --agent=cursor
