@@ -18,8 +18,8 @@ final class Application extends SymfonyApplication
     {
         parent::__construct(self::NAME, self::VERSION);
 
-        $this->addCommand(new GenerateCommand());
-        $this->addCommand(new InitCommand());
-        $this->addCommand(new ServeCommand());
+        $this->add(new GenerateCommand());
+        $this->add(new InitCommand());
+        $this->add(new ServeCommand());
     }
 }
