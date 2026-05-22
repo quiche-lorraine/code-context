@@ -215,6 +215,16 @@ final readonly class Config
         return (bool) $this->get('extractors.symfony.commands', true);
     }
 
+    public function symfonyEventSubscribersEnabled(): bool
+    {
+        return (bool) $this->get('extractors.symfony.event_subscribers', true);
+    }
+
+    public function symfonyWorkflowsEnabled(): bool
+    {
+        return (bool) $this->get('extractors.symfony.workflows', true);
+    }
+
     public function vendorContractsEnabled(): bool
     {
         return (bool) $this->get('extractors.vendor_contracts.enabled', false);

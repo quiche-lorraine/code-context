@@ -310,6 +310,11 @@ final class McpServerTest extends TestCase
             'get_entity',
             'get_entity_enums',
             'find_service',
+            'find_voters',
+            'find_message_handlers',
+            'find_subscribers',
+            'list_workflows',
+            'get_workflow',
         ] as $expected) {
             self::assertContains($expected, $names, "Tool {$expected} should be registered");
         }
@@ -428,6 +433,170 @@ final class McpServerTest extends TestCase
     public function testGetRouteNotFound(): void
     {
         $output = $this->callTool($this->buildFixture(), 'get_route', ['name' => 'nonexistent']);
+
+        self::assertStringContainsString('not found', $output);
+    }
+
+    public function testFindVoters(): void
+    {
+        $contextData = [
+            'php' => [
+                'classes' => [],
+                'graph' => [
+                    'subclasses' => [
+                        'Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter' => [
+                            'App\\Security\\Voter\\PostVoter',
+                            'App\\Security\\Voter\\CardVoter',
+                        ],
+                    ],
+                ],
+            ],
+            'symfony' => [],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'find_voters');
+
+        self::assertStringContainsString('Security Voters (2)', $output);
+        self::assertStringContainsString('App\\Security\\Voter\\PostVoter', $output);
+        self::assertStringContainsString('App\\Security\\Voter\\CardVoter', $output);
+    }
+
+    public function testFindMessageHandlers(): void
+    {
+        $contextData = [
+            'php' => [
+                'classes' => [
+                    [
+                        'fqcn' => 'App\\MessageHandler\\SendEmailHandler',
+                        'short_name' => 'SendEmailHandler',
+                        'namespace' => 'App\\MessageHandler',
+                        'kind' => 'class',
+                        'file' => 'src/MessageHandler/SendEmailHandler.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [],
+                        'attributes' => ['AsMessageHandler'],
+                        'methods' => [[
+                            'name' => '__invoke',
+                            'visibility' => 'public',
+                            'static' => false,
+                            'return_type' => 'void',
+                            'parameters' => [['name' => 'message', 'type' => 'App\\Message\\SendEmailMessage']],
+                            'attributes' => [],
+                            'summary' => null,
+                        ]],
+                        'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                ],
+                'graph' => [],
+            ],
+            'symfony' => [],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'find_message_handlers');
+
+        self::assertStringContainsString('Messenger Handlers (1)', $output);
+        self::assertStringContainsString('App\\MessageHandler\\SendEmailHandler::__invoke', $output);
+        self::assertStringContainsString('App\\Message\\SendEmailMessage', $output);
+    }
+
+    public function testFindSubscribersWithoutFilter(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'event_subscribers' => [
+                    [
+                        'class' => 'App\\Subscriber\\RequestSubscriber',
+                        'file' => 'src/Subscriber/RequestSubscriber.php',
+                        'events' => [
+                            ['event' => 'kernel.request', 'method' => 'onRequest', 'priority' => 100],
+                            ['event' => 'kernel.response', 'method' => 'onResponse', 'priority' => null],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'find_subscribers');
+
+        self::assertStringContainsString('Event Subscribers (1)', $output);
+        self::assertStringContainsString('RequestSubscriber', $output);
+        self::assertStringContainsString('kernel.request', $output);
+        self::assertStringContainsString('priority: 100', $output);
+        self::assertStringContainsString('kernel.response', $output);
+    }
+
+    public function testFindSubscribersFilteredByEvent(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'event_subscribers' => [
+                    [
+                        'class' => 'App\\Subscriber\\OneSubscriber',
+                        'file' => 'src/Subscriber/OneSubscriber.php',
+                        'events' => [['event' => 'kernel.request', 'method' => 'onRequest', 'priority' => null]],
+                    ],
+                    [
+                        'class' => 'App\\Subscriber\\OtherSubscriber',
+                        'file' => 'src/Subscriber/OtherSubscriber.php',
+                        'events' => [['event' => 'kernel.response', 'method' => 'onResponse', 'priority' => null]],
+                    ],
+                ],
+            ],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'find_subscribers', ['event' => 'request']);
+
+        self::assertStringContainsString('OneSubscriber', $output);
+        self::assertStringNotContainsString('OtherSubscriber', $output);
+    }
+
+    public function testListWorkflowsAndGetWorkflow(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'workflows' => [
+                    [
+                        'name' => 'article_publishing',
+                        'file' => 'config/packages/workflow.yaml',
+                        'type' => 'state_machine',
+                        'supports' => ['App\\Entity\\Article'],
+                        'initial_marking' => 'draft',
+                        'places' => ['draft', 'reviewed', 'published'],
+                        'transitions' => [
+                            ['name' => 'review', 'from' => ['draft'], 'to' => ['reviewed'], 'guard' => null],
+                            ['name' => 'publish', 'from' => ['reviewed'], 'to' => ['published'], 'guard' => "is_granted('ROLE_ADMIN')"],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $listOutput = $this->callTool($server, 'list_workflows');
+        self::assertStringContainsString('Workflows (1)', $listOutput);
+        self::assertStringContainsString('article_publishing', $listOutput);
+        self::assertStringContainsString('state_machine', $listOutput);
+
+        $detailOutput = $this->callTool($server, 'get_workflow', ['name' => 'article_publishing']);
+        self::assertStringContainsString('## Workflow `article_publishing`', $detailOutput);
+        self::assertStringContainsString('App\\Entity\\Article', $detailOutput);
+        self::assertStringContainsString('draft', $detailOutput);
+        self::assertStringContainsString('reviewed', $detailOutput);
+        self::assertStringContainsString('published', $detailOutput);
+        self::assertStringContainsString('review', $detailOutput);
+        self::assertStringContainsString("guard: `is_granted('ROLE_ADMIN')`", $detailOutput);
+    }
+
+    public function testGetWorkflowNotFound(): void
+    {
+        $output = $this->callTool($this->buildFixture(), 'get_workflow', ['name' => 'missing']);
 
         self::assertStringContainsString('not found', $output);
     }

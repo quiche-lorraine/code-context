@@ -8,8 +8,10 @@ use CodeContext\Config\Config;
 use CodeContext\Detector\SymfonyDetector;
 use CodeContext\Extractor\Symfony\ConsoleExtractor;
 use CodeContext\Extractor\Symfony\EntityExtractor;
+use CodeContext\Extractor\Symfony\EventSubscriberExtractor;
 use CodeContext\Extractor\Symfony\RouteExtractor;
 use CodeContext\Extractor\Symfony\ServiceExtractor;
+use CodeContext\Extractor\Symfony\WorkflowExtractor;
 use CodeContext\Kernel\ProjectContext;
 use CodeContext\Model\Context;
 
@@ -21,6 +23,8 @@ final class SymfonyExtractor implements ExtractorInterface
         private readonly ServiceExtractor $serviceExtractor = new ServiceExtractor(),
         private readonly EntityExtractor $entityExtractor = new EntityExtractor(),
         private readonly ConsoleExtractor $consoleExtractor = new ConsoleExtractor(),
+        private readonly EventSubscriberExtractor $eventSubscriberExtractor = new EventSubscriberExtractor(),
+        private readonly WorkflowExtractor $workflowExtractor = new WorkflowExtractor(),
     ) {
     }
 
@@ -50,5 +54,7 @@ final class SymfonyExtractor implements ExtractorInterface
         $this->serviceExtractor->extract($project, $config, $context);
         $this->entityExtractor->extract($project, $config, $context);
         $this->consoleExtractor->extract($project, $config, $context);
+        $this->eventSubscriberExtractor->extract($project, $config, $context);
+        $this->workflowExtractor->extract($project, $config, $context);
     }
 }

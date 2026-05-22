@@ -125,6 +125,11 @@ final class McpServer
             'get_entity' => $this->toolGetEntity($args),
             'get_entity_enums' => $this->toolGetEntityEnums(),
             'find_service' => $this->toolFindService($args),
+            'find_voters' => $this->toolFindVoters(),
+            'find_message_handlers' => $this->toolFindMessageHandlers(),
+            'find_subscribers' => $this->toolFindSubscribers($args),
+            'get_workflow' => $this->toolGetWorkflow($args),
+            'list_workflows' => $this->toolListWorkflows(),
             default => throw new \InvalidArgumentException("Unknown tool: {$name}"),
         };
 
@@ -702,6 +707,154 @@ final class McpServer
         return implode("\n", $lines);
     }
 
+    private function toolFindVoters(): string
+    {
+        $voters = $this->index->findVoters();
+        if ([] === $voters) {
+            return 'No Security Voters found (no classes extend Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter).';
+        }
+
+        $lines = ['## Security Voters (' . \count($voters) . ")\n"];
+        foreach ($voters as $voter) {
+            $class = $this->index->getClass($voter);
+            $file = null !== $class ? ' (`' . ($class['file'] ?? '') . '`)' : '';
+            $lines[] = "- `{$voter}`{$file}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function toolFindMessageHandlers(): string
+    {
+        $handlers = $this->index->findMessageHandlers();
+        if ([] === $handlers) {
+            return 'No Messenger handlers found (no classes carry #[AsMessageHandler]).';
+        }
+
+        $lines = ['## Messenger Handlers (' . \count($handlers) . ")\n"];
+        foreach ($handlers as $handler) {
+            $message = null !== $handler['message'] && '' !== $handler['message']
+                ? ' — message: `' . $handler['message'] . '`'
+                : '';
+            $lines[] = "- `{$handler['class']}::{$handler['method']}`{$message}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolFindSubscribers(array $args): string
+    {
+        $event = isset($args['event']) ? (string) $args['event'] : null;
+        $subscribers = $this->index->getSubscribers($event);
+
+        if ([] === $subscribers) {
+            $suffix = null !== $event && '' !== $event ? " for event \"{$event}\"" : '';
+
+            return "No event subscribers found{$suffix}.";
+        }
+
+        $title = null !== $event && '' !== $event
+            ? "## Event Subscribers matching \"{$event}\" (" . \count($subscribers) . ")"
+            : '## Event Subscribers (' . \count($subscribers) . ')';
+        $lines = [$title, ''];
+        foreach ($subscribers as $subscriber) {
+            $class = (string) ($subscriber['class'] ?? '');
+            $file = (string) ($subscriber['file'] ?? '');
+            $lines[] = "### `{$class}`";
+            $lines[] = "**File:** `{$file}`";
+            $events = (array) ($subscriber['events'] ?? []);
+            if ([] !== $events) {
+                $lines[] = '';
+                foreach ($events as $ev) {
+                    if (!\is_array($ev)) {
+                        continue;
+                    }
+                    $priorityStr = null !== ($ev['priority'] ?? null) ? ' [priority: ' . $ev['priority'] . ']' : '';
+                    $lines[] = "- `{$ev['event']}` → `{$ev['method']}()`{$priorityStr}";
+                }
+            }
+            $lines[] = '';
+        }
+
+        return rtrim(implode("\n", $lines));
+    }
+
+    private function toolListWorkflows(): string
+    {
+        $workflows = $this->index->getWorkflows();
+        if ([] === $workflows) {
+            return 'No workflows or state machines found in config/packages/.';
+        }
+
+        $lines = ['## Workflows (' . \count($workflows) . ")\n"];
+        foreach ($workflows as $workflow) {
+            $name = (string) ($workflow['name'] ?? '');
+            $type = (string) ($workflow['type'] ?? 'workflow');
+            $places = \count((array) ($workflow['places'] ?? []));
+            $transitions = \count((array) ($workflow['transitions'] ?? []));
+            $lines[] = "- `{$name}` [{$type}] — {$places} places, {$transitions} transitions";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolGetWorkflow(array $args): string
+    {
+        $name = (string) ($args['name'] ?? '');
+        if ('' === $name) {
+            throw new \InvalidArgumentException('name is required');
+        }
+
+        $workflow = $this->index->getWorkflow($name);
+        if (null === $workflow) {
+            return "Workflow \"{$name}\" not found in config/packages/.";
+        }
+
+        $lines = [];
+        $lines[] = "## Workflow `{$name}`";
+        $lines[] = '';
+        $lines[] = '**Type:** `' . (string) ($workflow['type'] ?? 'workflow') . '`';
+        $lines[] = '**File:** `' . (string) ($workflow['file'] ?? '') . '`';
+
+        $supports = (array) ($workflow['supports'] ?? []);
+        if ([] !== $supports) {
+            $lines[] = '**Supports:** ' . implode(', ', array_map(static fn (string $s): string => '`' . $s . '`', array_map('strval', $supports)));
+        }
+
+        if (null !== ($workflow['initial_marking'] ?? null)) {
+            $lines[] = '**Initial marking:** `' . (string) $workflow['initial_marking'] . '`';
+        }
+
+        $places = (array) ($workflow['places'] ?? []);
+        if ([] !== $places) {
+            $lines[] = '';
+            $lines[] = '### Places';
+            foreach ($places as $place) {
+                $lines[] = "- `{$place}`";
+            }
+        }
+
+        $transitions = (array) ($workflow['transitions'] ?? []);
+        if ([] !== $transitions) {
+            $lines[] = '';
+            $lines[] = '### Transitions';
+            foreach ($transitions as $transition) {
+                if (!\is_array($transition)) {
+                    continue;
+                }
+                $tName = (string) ($transition['name'] ?? '');
+                $from = implode(', ', array_map('strval', (array) ($transition['from'] ?? [])));
+                $to = implode(', ', array_map('strval', (array) ($transition['to'] ?? [])));
+                $guard = isset($transition['guard']) ? ' — guard: `' . $transition['guard'] . '`' : '';
+                $lines[] = "- `{$tName}`: [{$from}] → [{$to}]{$guard}";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
     // -------------------------------------------------------------------------
     // Tool definitions (JSON Schema)
     // -------------------------------------------------------------------------
@@ -869,6 +1022,42 @@ final class McpServer
                         'query' => ['type' => 'string', 'description' => 'Substring to match against service ids, FQCNs or namespaces'],
                     ],
                     'required' => ['query'],
+                ],
+            ],
+            [
+                'name' => 'find_voters',
+                'description' => 'List all Symfony Security Voters (classes extending Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter).',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'find_message_handlers',
+                'description' => 'List all Symfony Messenger handlers (classes carrying #[AsMessageHandler]) with the message type they handle.',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'find_subscribers',
+                'description' => 'List Symfony EventSubscriberInterface implementors with their subscribed events and priorities. Optional event filter does substring match on event names.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'event' => ['type' => 'string', 'description' => 'Optional event name substring filter (e.g. "kernel.request")'],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'list_workflows',
+                'description' => 'List all Symfony workflows and state machines configured under framework.workflows in config/packages/.',
+                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+            ],
+            [
+                'name' => 'get_workflow',
+                'description' => 'Get the full definition of a Symfony workflow or state machine: places, transitions, supports, guards.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'Workflow name as declared in framework.workflows.<name>'],
+                    ],
+                    'required' => ['name'],
                 ],
             ],
         ];
