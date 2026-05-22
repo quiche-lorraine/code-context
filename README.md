@@ -55,7 +55,7 @@ Options principales :
 - `generate --output=DIR` : surcharge `output.directory` du YAML.
 - `generate --cwd=DIR` : analyser un autre répertoire que le cwd courant.
 
-Sortie générée dans `<output.directory>` (par défaut `code-context-out/`) :
+Sortie générée dans `<output.directory>` (par défaut `.code-context/`) :
 
 - `context.json` : représentation structurée consommée par le serveur MCP.
 - `AGENTS.md` : vue narrative regroupée par namespace.
@@ -101,7 +101,7 @@ config/
     default.yaml           Configuration par défaut bundled
 recipes/
     quiche-lorraine/code-context/1.0/
-        manifest.json      gitignore /code-context-out/, copie hook + cursor rules
+        manifest.json      gitignore /.code-context/, copie hook + cursor rules
         .claude/           settings.json + hooks/code-context-rebuild.sh
         .cursor/           rules/code-context.md
     quiche-lorraine/code-context/dev-main/

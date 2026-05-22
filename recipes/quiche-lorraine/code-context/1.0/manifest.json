@@ -5,7 +5,7 @@
     ".cursor/rules/code-context.md": ".cursor/rules/code-context.md"
   },
   "gitignore": [
-    "/code-context-out/"
+    "/.code-context/"
   ],
   "post-install-output": [
     "<info>code-context</info> recipe applied.",
