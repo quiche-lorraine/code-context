@@ -1,8 +1,8 @@
 # code-context
 
-CLI standalone (basé sur `symfony/console`) qui analyse une base de code PHP et produit un dossier de contexte destiné aux agents IA, composé d'un `context.json` structuré et de plusieurs `.md` orientés agents.
+Standalone CLI (built on `symfony/console`) that analyses a PHP codebase and produces a context folder for AI agents, consisting of a structured `context.json` and several agent-oriented `.md` files.
 
-> Statut : **Phase 2 en cours**. Le socle est opérationnel : commandes `init`, `generate`, `serve`, validation stricte de config, architecture extracteurs, détection Symfony, fichiers `.md` thématiques.
+> Status: **Phase 2 in progress**. The foundation is operational: `init`, `generate`, `serve` commands, strict config validation, extractor architecture, Symfony detection, thematic `.md` files.
 
 ## Installation
 
@@ -10,36 +10,36 @@ CLI standalone (basé sur `symfony/console`) qui analyse une base de code PHP et
 composer require --dev quiche-lorraine/code-context
 ```
 
-Puis initialisez la configuration des agents :
+Then initialise the agent configuration:
 
 ```bash
-vendor/bin/code-context init --agent=mcp         # merge .mcp.json (préserve les autres serveurs)
-vendor/bin/code-context init --agent=claude-code  # écrit .claude/settings.json + hook rebuild
-vendor/bin/code-context init --agent=cursor       # écrit .cursor/rules/code-context.md
-vendor/bin/code-context init --agent=all          # les trois agents d'un coup
+vendor/bin/code-context init --agent=mcp         # merge .mcp.json (preserves other servers)
+vendor/bin/code-context init --agent=claude-code  # writes .claude/settings.json + rebuild hook
+vendor/bin/code-context init --agent=cursor       # writes .cursor/rules/code-context.md
+vendor/bin/code-context init --agent=all          # all three agents at once
 ```
 
-Puis générez le premier index :
+Then generate the first index:
 
 ```bash
 vendor/bin/code-context generate
 ```
 
-## Commande `init --agent`
+## `init --agent` command
 
 ```bash
-vendor/bin/code-context init --agent=mcp         # merge dans .mcp.json (préserve les autres serveurs)
-vendor/bin/code-context init --agent=claude-code  # écrit .claude/settings.json + hook (skip si déjà présent)
-vendor/bin/code-context init --agent=cursor       # écrit .cursor/rules/code-context.md (skip si déjà présent)
-vendor/bin/code-context init --agent=all          # tous les agents
-vendor/bin/code-context init --agent=mcp --dry-run  # affiche le résultat sans écrire
+vendor/bin/code-context init --agent=mcp         # merge into .mcp.json (preserves other servers)
+vendor/bin/code-context init --agent=claude-code  # writes .claude/settings.json + hook (skipped if already present)
+vendor/bin/code-context init --agent=cursor       # writes .cursor/rules/code-context.md (skipped if already present)
+vendor/bin/code-context init --agent=all          # all agents
+vendor/bin/code-context init --agent=mcp --dry-run  # prints the result without writing
 ```
 
-Le merge MCP est idempotent : une seconde exécution est no-op si la config est déjà à jour.
+MCP merge is idempotent: a second run is a no-op if the config is already up to date.
 
-Pour `--agent=claude-code` et `--agent=cursor` : si le fichier cible existe déjà, la commande l'ignore (pas de clobber).
+For `--agent=claude-code` and `--agent=cursor`: if the target file already exists, the command leaves it untouched (no clobber).
 
-**Projets avec un `session-start.sh` existant** : ajoutez l'appel au hook depuis votre orchestrateur :
+**Projects with an existing `session-start.sh`**: add the hook call from your orchestrator:
 
 ```bash
 if [ -x .claude/hooks/code-context-rebuild.sh ]; then
@@ -47,71 +47,71 @@ if [ -x .claude/hooks/code-context-rebuild.sh ]; then
 fi
 ```
 
-## Utilisation
+## Usage
 
-Options principales :
+Main options:
 
-- `generate --config=PATH` : chemin vers un fichier `code-context.yaml`.
-- `generate --output=DIR` : surcharge `output.directory` du YAML.
-- `generate --cwd=DIR` : analyser un autre répertoire que le cwd courant.
+- `generate --config=PATH`: path to a `code-context.yaml` file.
+- `generate --output=DIR`: overrides `output.directory` from the YAML.
+- `generate --cwd=DIR`: analyse a directory other than the current working directory.
 
-Sortie générée dans `<output.directory>` (par défaut `.code-context/`) :
+Output generated in `<output.directory>` (default `.code-context/`):
 
-- `context.json` : représentation structurée consommée par le serveur MCP.
-- `AGENTS.md` : vue narrative regroupée par namespace.
-- `architecture.md`, `routes.md`, `entities.md`, `services.md`, `commands.md` : vues Symfony spécialisées.
+- `context.json`: structured representation consumed by the MCP server.
+- `AGENTS.md`: narrative view grouped by namespace.
+- `architecture.md`, `routes.md`, `entities.md`, `services.md`, `commands.md`: specialised Symfony views.
 
-## Hook SessionStart (Claude Code)
+## SessionStart Hook (Claude Code)
 
-Le fichier `.claude/hooks/code-context-rebuild.sh` (installé par `init --agent=claude-code`) reconstruit l'index à chaque démarrage de session Claude Code.
+The `.claude/hooks/code-context-rebuild.sh` file (installed by `init --agent=claude-code`) rebuilds the index at every Claude Code session start.
 
 ## Architecture
 
 ```
-bin/code-context           Entrypoint Symfony Console
+bin/code-context           Symfony Console entrypoint
 src/
     Application.php
     Command/
         InitCommand        init --agent=mcp|claude-code|cursor|all + legacy yaml init
-        GenerateCommand    Orchestre scan + extracteurs + renderers
-        ServeCommand       Serveur MCP stdio
+        GenerateCommand    Orchestrates scan + extractors + renderers
+        ServeCommand       MCP stdio server
     Config/
-        Config             Value-object immuable
-        ConfigLoader       default.yaml + override utilisateur + validation
-        ConfigSchema       Schéma strict via symfony/config
+        Config             Immutable value object
+        ConfigLoader       default.yaml + user override + validation
+        ConfigSchema       Strict schema via symfony/config
     Detector/
-        SymfonyDetector    Détection du framework Symfony
+        SymfonyDetector    Symfony framework detection
     Extractor/             ComposerExtractor, PhpStructureExtractor, SymfonyExtractor, ...
     Kernel/
-        ProjectContext     Résolution des chemins du projet cible
+        ProjectContext     Target project path resolution
     Mcp/
-        McpManifestMerger  Merge non-destructif de .mcp.json (idémpotent)
-        MergeResult        DTO résultat du merge
+        McpManifestMerger  Non-destructive merge of .mcp.json (idempotent)
+        MergeResult        Merge result DTO
     Scanner/
-        FileScanner        Découverte via symfony/finder
+        FileScanner        Discovery via symfony/finder
     Analyzer/
         PhpAstAnalyzer     AST via nikic/php-parser
-    Model/                 DTO immuables: Context, ClassInfo, MethodInfo, ...
+    Model/                 Immutable DTOs: Context, ClassInfo, MethodInfo, ...
     Renderer/
         JsonRenderer       context.json
         Markdown/          AGENTS.md, architecture.md, routes.md, etc.
     Output/
-        OutputWriter       Écriture sur disque
+        OutputWriter       Writes to disk
 config/
-    default.yaml           Configuration par défaut bundled
+    default.yaml           Bundled default configuration
 recipes/
     quiche-lorraine/code-context/1.0/
-        manifest.json      gitignore /.code-context/, copie hook + cursor rules
+        manifest.json      gitignore /.code-context/, copies hook + cursor rules
         .claude/           settings.json + hooks/code-context-rebuild.sh
         .cursor/           rules/code-context.md
     quiche-lorraine/code-context/dev-main/
-        manifest.json      (idem, pour installation depuis la branche main)
+        manifest.json      (same, for installation from the main branch)
 resources/agents/
-    claude-code/           Source pour init --agent=claude-code
-    cursor/                Source pour init --agent=cursor
+    claude-code/           Source for init --agent=claude-code
+    cursor/                Source for init --agent=cursor
 ```
 
-## Qualité de code
+## Code quality
 
 - `composer test` (PHPUnit)
 - `composer lint` (PHPStan)
