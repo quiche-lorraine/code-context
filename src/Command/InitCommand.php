@@ -22,8 +22,14 @@ final class InitCommand extends Command
     private const MCP_SERVER_KEY = 'code-context';
     private const MCP_SERVER_CONFIG = [
         'type' => 'stdio',
-        'command' => 'vendor/bin/code-context',
-        'args' => ['serve', '--index=.code-context/context.json'],
+        'command' => 'php',
+        'args' => [
+            '-d', 'memory_limit=512M',
+            '-d', 'output_buffering=0',
+            'vendor/bin/code-context',
+            'serve',
+            '--index=.code-context/context.json',
+        ],
     ];
 
     protected function configure(): void
