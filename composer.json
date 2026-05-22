@@ -2,6 +2,19 @@
     "name": "quiche-lorraine/code-context",
     "description": "CLI standalone qui génère un contexte de codebase (JSON + Markdown) destiné aux agents IA.",
     "type": "library",
+    "keywords": [
+        "ai",
+        "ai-agent",
+        "mcp",
+        "model-context-protocol",
+        "cli",
+        "code-analysis",
+        "context",
+        "development",
+        "dev",
+        "php",
+        "symfony"
+    ],
     "license": "MIT",
     "require": {
         "php": ">=8.2",
