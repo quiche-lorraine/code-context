@@ -35,6 +35,9 @@ final class ClassIndex
     /** @var list<array<string, mixed>> */
     private array $routes = [];
 
+    /** @var array<string, array<string, mixed>> route name → route array */
+    private array $routeByName = [];
+
     /** @var list<array<string, mixed>> */
     private array $commands = [];
 
@@ -132,6 +135,12 @@ final class ClassIndex
         $index->routes = \is_array($symfony['routes'] ?? null)
             ? array_values(array_filter($symfony['routes'], 'is_array'))
             : [];
+        foreach ($index->routes as $route) {
+            $routeName = ($route['name'] ?? null);
+            if (\is_string($routeName) && '' !== $routeName) {
+                $index->routeByName[$routeName] = $route;
+            }
+        }
         $index->commands = \is_array($symfony['commands'] ?? null)
             ? array_values(array_filter($symfony['commands'], 'is_array'))
             : [];
@@ -250,6 +259,50 @@ final class ClassIndex
     public function getClass(string $fqcn): ?array
     {
         return $this->byFqcn[$fqcn] ?? $this->byFqcn[$this->resolveShortName($fqcn)] ?? null;
+    }
+
+    /**
+     * Returns all FQCNs that match a given short name (for disambiguation).
+     *
+     * @return list<string>
+     */
+    public function getShortNameCandidates(string $shortName): array
+    {
+        return $this->byShortName[strtolower($shortName)] ?? [];
+    }
+
+    /**
+     * Returns matching methods for a name substring query.
+     *
+     * @return list<array{class: string, method: array<string, mixed>}>
+     */
+    public function searchMethod(string $query): array
+    {
+        $q = strtolower(trim($query));
+        if ('' === $q) {
+            return [];
+        }
+
+        $hits = [];
+        foreach ($this->byMethod as $mName => $entries) {
+            if (str_contains($mName, $q)) {
+                foreach ($entries as $entry) {
+                    $hits[] = $entry;
+                }
+            }
+        }
+
+        return array_slice($hits, 0, 50);
+    }
+
+    /**
+     * Returns a route by its Symfony name, or null if not found.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getRoute(string $name): ?array
+    {
+        return $this->routeByName[$name] ?? null;
     }
 
     /**
