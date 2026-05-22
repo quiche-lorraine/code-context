@@ -302,6 +302,8 @@ final class McpServerTest extends TestCase
 
         foreach ([
             'find_by_attribute',
+            'search_method',
+            'get_route',
             'get_commands',
             'get_command',
             'list_entities',
@@ -311,5 +313,122 @@ final class McpServerTest extends TestCase
         ] as $expected) {
             self::assertContains($expected, $names, "Tool {$expected} should be registered");
         }
+    }
+
+    public function testSearchMethodReturnMatchingMethod(): void
+    {
+        $output = $this->callTool($this->buildFixture(), 'search_method', ['query' => 'execute']);
+
+        self::assertStringContainsString('`execute()', $output);
+        self::assertStringContainsString('App\\Command\\SyncCommand', $output);
+        // Should NOT return the containing class summary — it's a method result
+        self::assertStringNotContainsString('## SyncCommand', $output);
+    }
+
+    public function testSearchMethodDoesNotReturnContainingClass(): void
+    {
+        // search_symbol for 'execute' would return SyncCommand class; search_method should return just the method
+        $output = $this->callTool($this->buildFixture(), 'search_method', ['query' => 'getId']);
+
+        self::assertStringContainsString('`getId()', $output);
+        self::assertStringContainsString('App\\Entity\\User', $output);
+    }
+
+    public function testGetClassDisambiguatesAmbiguousShortName(): void
+    {
+        // Build a fixture with two classes sharing the same short name
+        $contextData = [
+            'php' => [
+                'classes' => [
+                    [
+                        'fqcn' => 'App\\Entity\\Card',
+                        'short_name' => 'Card',
+                        'namespace' => 'App\\Entity',
+                        'kind' => 'class',
+                        'file' => 'src/Entity/Card.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [], 'attributes' => [],
+                        'methods' => [], 'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                    [
+                        'fqcn' => 'App\\Document\\Card',
+                        'short_name' => 'Card',
+                        'namespace' => 'App\\Document',
+                        'kind' => 'class',
+                        'file' => 'src/Document/Card.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [], 'attributes' => [],
+                        'methods' => [], 'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                ],
+                'graph' => [],
+            ],
+            'symfony' => [],
+        ];
+
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+        $output = $this->callTool($server, 'get_class', ['fqcn' => 'Card']);
+
+        self::assertStringContainsString('Ambiguous', $output);
+        self::assertStringContainsString('App\\Entity\\Card', $output);
+        self::assertStringContainsString('App\\Document\\Card', $output);
+    }
+
+    public function testGetRoutesWithPagination(): void
+    {
+        // Build a fixture with multiple routes
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'routes' => [
+                    ['scope' => 'method', 'class' => 'App\\Controller\\FooController', 'method' => 'index', 'attribute' => "Route('/foo', name: 'foo_index')", 'name' => 'foo_index', 'path' => '/foo', 'methods' => ['GET']],
+                    ['scope' => 'method', 'class' => 'App\\Controller\\FooController', 'method' => 'show', 'attribute' => "Route('/foo/{id}', name: 'foo_show')", 'name' => 'foo_show', 'path' => '/foo/{id}', 'methods' => ['GET']],
+                    ['scope' => 'method', 'class' => 'App\\Controller\\BarController', 'method' => 'index', 'attribute' => "Route('/bar', name: 'bar_index')", 'name' => 'bar_index', 'path' => '/bar', 'methods' => ['GET']],
+                ],
+            ],
+        ];
+
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        // Without pagination: all 3
+        $output = $this->callTool($server, 'get_routes');
+        self::assertStringContainsString('Routes (3)', $output);
+
+        // With limit=2
+        $output = $this->callTool($server, 'get_routes', ['limit' => 2]);
+        self::assertStringContainsString('showing 0–1 of 3', $output);
+        self::assertStringNotContainsString('bar_index', $output);
+
+        // With offset=2
+        $output = $this->callTool($server, 'get_routes', ['limit' => 2, 'offset' => 2]);
+        self::assertStringContainsString('showing 2–2 of 3', $output);
+        self::assertStringContainsString('bar_index', $output);
+    }
+
+    public function testGetRouteByName(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'routes' => [
+                    ['scope' => 'method', 'class' => 'App\\Controller\\FooController', 'method' => 'index', 'attribute' => "Route('/foo', name: 'foo_index')", 'name' => 'foo_index', 'path' => '/foo', 'methods' => ['GET']],
+                ],
+            ],
+        ];
+
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'get_route', ['name' => 'foo_index']);
+        self::assertStringContainsString('## Route `foo_index`', $output);
+        self::assertStringContainsString('/foo', $output);
+        self::assertStringContainsString('GET', $output);
+        self::assertStringContainsString('FooController::index', $output);
+    }
+
+    public function testGetRouteNotFound(): void
+    {
+        $output = $this->callTool($this->buildFixture(), 'get_route', ['name' => 'nonexistent']);
+
+        self::assertStringContainsString('not found', $output);
     }
 }

@@ -117,6 +117,8 @@ final class McpServer
             'get_routes' => $this->toolGetRoutes($args),
             'get_namespace' => $this->toolGetNamespace($args),
             'find_by_attribute' => $this->toolFindByAttribute($args),
+            'search_method' => $this->toolSearchMethod($args),
+            'get_route' => $this->toolGetRoute($args),
             'get_commands' => $this->toolGetCommands(),
             'get_command' => $this->toolGetCommand($args),
             'list_entities' => $this->toolListEntities(),
@@ -178,6 +180,17 @@ final class McpServer
         $fqcn = (string) ($args['fqcn'] ?? '');
         if ('' === $fqcn) {
             throw new \InvalidArgumentException('fqcn is required');
+        }
+
+        // Disambiguate short names that match multiple FQCNs
+        if (!str_contains($fqcn, '\\')) {
+            $candidates = $this->index->getShortNameCandidates($fqcn);
+            if (\count($candidates) > 1) {
+                $count = \count($candidates);
+                $list = implode("\n", array_map(static fn (string $c): string => "- `{$c}`", $candidates));
+
+                return "Ambiguous short name \"{$fqcn}\" — {$count} matches found. Please provide a fully qualified class name:\n\n{$list}";
+            }
         }
 
         $class = $this->index->getClass($fqcn);
@@ -362,7 +375,11 @@ final class McpServer
     private function toolGetRoutes(array $args): string
     {
         $filter = isset($args['filter']) ? (string) $args['filter'] : null;
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : null;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+
         $routes = $this->index->getRoutes($filter);
+        $total = \count($routes);
 
         if ([] === $routes) {
             $suffix = null !== $filter ? " matching \"{$filter}\"" : '';
@@ -370,13 +387,22 @@ final class McpServer
             return "No routes found{$suffix}.";
         }
 
-        $lines = ['Routes (' . \count($routes) . "):\n"];
+        if ($offset > 0 || null !== $limit) {
+            $routes = array_slice($routes, $offset, $limit);
+        }
+
+        $pageInfo = null !== $limit
+            ? " (showing {$offset}–" . ($offset + \count($routes) - 1) . " of {$total})"
+            : '';
+        $lines = ["Routes ({$total}){$pageInfo}:\n"];
         foreach ($routes as $route) {
             $scope = $route['scope'] ?? 'method';
             $class = $route['class'] ?? '';
             $method = isset($route['method']) ? '::' . $route['method'] : '';
-            $attr = $route['attribute'] ?? '';
-            $lines[] = "- [{$scope}] `{$class}{$method}` — `#[{$attr}]`";
+            $name = isset($route['name']) ? " name={$route['name']}" : '';
+            $path = isset($route['path']) ? " path={$route['path']}" : '';
+            $methods = [] !== (array) ($route['methods'] ?? []) ? ' [' . implode(',', (array) $route['methods']) . ']' : '';
+            $lines[] = "- [{$scope}]{$methods} `{$class}{$method}`{$name}{$path}";
         }
 
         return implode("\n", $lines);
@@ -606,6 +632,76 @@ final class McpServer
         return rtrim(implode("\n", $lines));
     }
 
+    /** @param array<string, mixed> $args */
+    private function toolSearchMethod(array $args): string
+    {
+        $query = (string) ($args['query'] ?? '');
+        if ('' === $query) {
+            throw new \InvalidArgumentException('query is required');
+        }
+
+        $results = $this->index->searchMethod($query);
+        if ([] === $results) {
+            return "No methods found matching \"{$query}\".";
+        }
+
+        $lines = ["Found " . \count($results) . " method(s) matching \"{$query}\":\n"];
+        foreach ($results as $entry) {
+            $fqcn = (string) $entry['class'];
+            $method = $entry['method'];
+            $name = (string) ($method['name'] ?? '');
+            $visibility = (string) ($method['visibility'] ?? 'public');
+            $static = ($method['static'] ?? false) ? 'static ' : '';
+            $returnType = null !== ($method['return_type'] ?? null) ? ': ' . $method['return_type'] : '';
+            $params = [];
+            foreach ((array) ($method['parameters'] ?? []) as $p) {
+                if (!\is_array($p)) {
+                    continue;
+                }
+                $pType = null !== ($p['type'] ?? null) ? (string) $p['type'] . ' ' : '';
+                $params[] = $pType . '$' . ($p['name'] ?? '');
+            }
+            $sig = "`{$name}(" . implode(', ', $params) . "){$returnType}`";
+            $summary = null !== ($method['summary'] ?? null) && '' !== $method['summary']
+                ? ' — ' . $method['summary']
+                : '';
+            $class = $this->index->getClass($fqcn);
+            $file = null !== $class ? ' (' . ($class['file'] ?? '') . ')' : '';
+            $lines[] = "- {$visibility} {$static}{$sig} in `{$fqcn}`{$summary}{$file}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolGetRoute(array $args): string
+    {
+        $name = (string) ($args['name'] ?? '');
+        if ('' === $name) {
+            throw new \InvalidArgumentException('name is required');
+        }
+
+        $route = $this->index->getRoute($name);
+        if (null === $route) {
+            return "Route \"{$name}\" not found in the index.";
+        }
+
+        $lines = [];
+        $lines[] = "## Route `{$name}`";
+        $lines[] = '';
+        $path = $route['path'] ?? null;
+        if (null !== $path && '' !== $path) {
+            $lines[] = "**Path:** `{$path}`";
+        }
+        $routeMethods = (array) ($route['methods'] ?? []);
+        if ([] !== $routeMethods) {
+            $lines[] = '**Methods:** ' . implode(', ', $routeMethods);
+        }
+        $lines[] = '**Controller:** `' . (string) ($route['class'] ?? '') . '::' . (string) ($route['method'] ?? '') . '`';
+
+        return implode("\n", $lines);
+    }
+
     // -------------------------------------------------------------------------
     // Tool definitions (JSON Schema)
     // -------------------------------------------------------------------------
@@ -672,12 +768,25 @@ final class McpServer
             ],
             [
                 'name' => 'get_routes',
-                'description' => 'List Symfony routes extracted from #[Route] attributes.',
+                'description' => 'List Symfony routes extracted from #[Route] attributes. Supports filtering and pagination.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
-                        'filter' => ['type' => 'string', 'description' => 'Optional substring filter on controller class or route attribute'],
+                        'filter' => ['type' => 'string', 'description' => 'Optional substring filter on controller class, method or route attribute'],
+                        'limit' => ['type' => 'integer', 'description' => 'Maximum number of routes to return'],
+                        'offset' => ['type' => 'integer', 'description' => 'Number of routes to skip (default: 0)'],
                     ],
+                ],
+            ],
+            [
+                'name' => 'get_route',
+                'description' => 'Get a Symfony route by its declared name.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string', 'description' => 'Route name as declared in #[Route(name: "...")]'],
+                    ],
+                    'required' => ['name'],
                 ],
             ],
             [
@@ -689,6 +798,17 @@ final class McpServer
                         'namespace' => ['type' => 'string', 'description' => 'Namespace prefix (e.g. "App\\\\Service")'],
                     ],
                     'required' => ['namespace'],
+                ],
+            ],
+            [
+                'name' => 'search_method',
+                'description' => 'Search for methods by name substring across all classes. Returns matching methods with their signature, class and file — unlike search_symbol which returns the containing class.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'query' => ['type' => 'string', 'description' => 'Method name substring to search for'],
+                    ],
+                    'required' => ['query'],
                 ],
             ],
             [
