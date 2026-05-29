@@ -55,7 +55,9 @@ final class McpServerTest extends TestCase
                         'extends' => null,
                         'implements' => [],
                         'traits' => [],
-                        'attributes' => ['Doctrine\\ORM\\Mapping\\Entity'],
+                        'attributes' => [
+                            ['name' => 'Doctrine\\ORM\\Mapping\\Entity', 'arguments' => []],
+                        ],
                         'methods' => [
                             [
                                 'name' => 'getId',
@@ -75,7 +77,16 @@ final class McpServerTest extends TestCase
                                 'readonly' => false,
                                 'type' => 'string',
                                 'default' => null,
-                                'attributes' => ['ORM\\Column(type: "string", length: 180, unique: true)'],
+                                'attributes' => [
+                                    [
+                                        'name' => 'ORM\\Column',
+                                        'arguments' => [
+                                            ['name' => 'type', 'value' => '"string"'],
+                                            ['name' => 'length', 'value' => '180'],
+                                            ['name' => 'unique', 'value' => 'true'],
+                                        ],
+                                    ],
+                                ],
                                 'summary' => null,
                             ],
                         ],
@@ -94,7 +105,15 @@ final class McpServerTest extends TestCase
                         'extends' => 'Symfony\\Component\\Console\\Command\\Command',
                         'implements' => [],
                         'traits' => [],
-                        'attributes' => ['AsCommand(name: "app:sync", description: "Sync stuff")'],
+                        'attributes' => [
+                            [
+                                'name' => 'AsCommand',
+                                'arguments' => [
+                                    ['name' => 'name', 'value' => '"app:sync"'],
+                                    ['name' => 'description', 'value' => '"Sync stuff"'],
+                                ],
+                            ],
+                        ],
                         'methods' => [
                             [
                                 'name' => 'execute',
@@ -102,7 +121,9 @@ final class McpServerTest extends TestCase
                                 'static' => false,
                                 'return_type' => 'int',
                                 'parameters' => [],
-                                'attributes' => ['Override'],
+                                'attributes' => [
+                                    ['name' => 'Override', 'arguments' => []],
+                                ],
                                 'summary' => null,
                             ],
                         ],
@@ -150,7 +171,16 @@ final class McpServerTest extends TestCase
                                 'name' => 'email',
                                 'type' => 'string',
                                 'visibility' => 'private',
-                                'attributes' => ['ORM\\Column(type: "string", length: 180, unique: true)'],
+                                'attributes' => [
+                                    [
+                                        'name' => 'ORM\\Column',
+                                        'arguments' => [
+                                            ['name' => 'type', 'value' => '"string"'],
+                                            ['name' => 'length', 'value' => '180'],
+                                            ['name' => 'unique', 'value' => 'true'],
+                                        ],
+                                    ],
+                                ],
                             ],
                         ],
                     ],
@@ -475,7 +505,9 @@ final class McpServerTest extends TestCase
                         'file' => 'src/MessageHandler/SendEmailHandler.php',
                         'abstract' => false, 'final' => false, 'readonly' => false,
                         'extends' => null, 'implements' => [], 'traits' => [],
-                        'attributes' => ['AsMessageHandler'],
+                        'attributes' => [
+                            ['name' => 'AsMessageHandler', 'arguments' => []],
+                        ],
                         'methods' => [[
                             'name' => '__invoke',
                             'visibility' => 'public',

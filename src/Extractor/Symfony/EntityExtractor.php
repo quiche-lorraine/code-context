@@ -7,6 +7,7 @@ namespace CodeContext\Extractor\Symfony;
 use CodeContext\Analyzer\PhpAstAnalyzer;
 use CodeContext\Config\Config;
 use CodeContext\Kernel\ProjectContext;
+use CodeContext\Model\AttributeInfo;
 use CodeContext\Model\Context;
 
 final class EntityExtractor
@@ -34,8 +35,8 @@ final class EntityExtractor
 
             $isEntity = false;
             foreach ($class->attributes as $attribute) {
-                if (str_starts_with($attribute, 'Doctrine\\ORM\\Mapping\\Entity')
-                    || str_contains($attribute, '\\ORM\\Entity')) {
+                if (str_starts_with($attribute->name, 'Doctrine\\ORM\\Mapping\\Entity')
+                    || str_contains($attribute->name, '\\ORM\\Entity')) {
                     $isEntity = true;
                     break;
                 }
@@ -63,7 +64,10 @@ final class EntityExtractor
                         'name' => $p->name,
                         'type' => $p->type,
                         'visibility' => $p->visibility,
-                        'attributes' => $p->attributes,
+                        'attributes' => array_map(
+                            static fn (AttributeInfo $a): array => $a->toArray(),
+                            $p->attributes,
+                        ),
                     ],
                     $entityClass->properties,
                 ),

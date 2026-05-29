@@ -8,7 +8,7 @@ final readonly class MethodInfo
 {
     /**
      * @param list<ParameterInfo> $parameters
-     * @param list<string>        $attributes
+     * @param list<AttributeInfo> $attributes
      */
     public function __construct(
         public string $name,
@@ -36,7 +36,7 @@ final readonly class MethodInfo
             'final' => $this->isFinal,
             'return_type' => $this->returnType,
             'parameters' => array_map(static fn (ParameterInfo $p): array => $p->toArray(), $this->parameters),
-            'attributes' => $this->attributes,
+            'attributes' => array_map(static fn (AttributeInfo $a): array => $a->toArray(), $this->attributes),
             'summary' => $this->summary,
         ];
     }
@@ -59,7 +59,7 @@ final readonly class MethodInfo
             isFinal: (bool) ($data['final'] ?? false),
             returnType: isset($data['return_type']) ? (string) $data['return_type'] : null,
             parameters: array_values($parameters),
-            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            attributes: AttributeInfo::listFromArray($data['attributes'] ?? []),
             summary: isset($data['summary']) ? (string) $data['summary'] : null,
         );
     }

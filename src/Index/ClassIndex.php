@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CodeContext\Index;
 
+use CodeContext\Model\AttributeInfo;
+
 /**
  * In-memory query layer built from a deserialized context.json.
  *
@@ -102,7 +104,7 @@ final class ClassIndex
             $index->byNamespace[$ns][] = $fqcn;
 
             foreach ((array) ($class['attributes'] ?? []) as $attr) {
-                if (\is_string($attr)) {
+                if (\is_array($attr)) {
                     $index->indexAttribute('class', $fqcn, null, $attr);
                 }
             }
@@ -114,7 +116,7 @@ final class ClassIndex
                 $mName = strtolower((string) $method['name']);
                 $index->byMethod[$mName][] = ['class' => $fqcn, 'method' => $method];
                 foreach ((array) ($method['attributes'] ?? []) as $attr) {
-                    if (\is_string($attr)) {
+                    if (\is_array($attr)) {
                         $index->indexAttribute('method', $fqcn, (string) $method['name'], $attr);
                     }
                 }
@@ -125,7 +127,7 @@ final class ClassIndex
                     continue;
                 }
                 foreach ((array) ($prop['attributes'] ?? []) as $attr) {
-                    if (\is_string($attr)) {
+                    if (\is_array($attr)) {
                         $index->indexAttribute('property', $fqcn, (string) $prop['name'], $attr);
                     }
                 }
@@ -210,24 +212,27 @@ final class ClassIndex
     }
 
     /**
-     * Returns the last `\\`-separated segment of an attribute name (e.g. `ORM\Column` → `Column`).
+     * Returns the last `\\`-separated segment of a needle (e.g. `ORM\Column` → `Column`),
+     * stripping any trailing argument list the caller may have included.
      */
-    private static function attributeShortName(string $attribute): string
+    private static function needleShortName(string $needle): string
     {
-        $name = $attribute;
+        $name = $needle;
         $parenPos = strpos($name, '(');
         if (false !== $parenPos) {
             $name = substr($name, 0, $parenPos);
         }
-        $name = trim($name, "\\ \t");
-        $lastSlash = strrpos($name, '\\');
 
-        return false === $lastSlash ? $name : substr($name, $lastSlash + 1);
+        return (new AttributeInfo($name, []))->shortName();
     }
 
-    private function indexAttribute(string $scope, string $fqcn, ?string $member, string $attribute): void
+    /**
+     * @param array<string, mixed> $attribute Structured attribute (`{name, arguments}`)
+     */
+    private function indexAttribute(string $scope, string $fqcn, ?string $member, array $attribute): void
     {
-        $short = strtolower(self::attributeShortName($attribute));
+        $info = AttributeInfo::fromArray($attribute);
+        $short = strtolower($info->shortName());
         if ('' === $short) {
             return;
         }
@@ -235,7 +240,7 @@ final class ClassIndex
             'scope' => $scope,
             'fqcn' => $fqcn,
             'member' => $member,
-            'raw' => $attribute,
+            'raw' => $info->render(),
         ];
     }
 
@@ -663,7 +668,7 @@ final class ClassIndex
             return [];
         }
 
-        $needleShort = strtolower(self::attributeShortName($needle));
+        $needleShort = strtolower(self::needleShortName($needle));
         $needleLower = strtolower(ltrim($needle, '\\'));
 
         $hits = [];

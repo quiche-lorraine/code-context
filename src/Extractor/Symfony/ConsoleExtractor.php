@@ -19,23 +19,31 @@ final class ConsoleExtractor
         $commands = [];
         foreach ($context->classes as $class) {
             foreach ($class->attributes as $attribute) {
-                if (!str_starts_with($attribute, 'Symfony\\Component\\Console\\Attribute\\AsCommand')
-                    && !str_starts_with($attribute, 'AsCommand')) {
+                if ('AsCommand' !== $attribute->shortName()) {
                     continue;
                 }
 
                 $name = null;
                 $description = null;
+                $firstPositional = null;
 
-                if (preg_match('/\bname:\s*[\'"](.*?)[\'"]/', $attribute, $m)) {
-                    $name = $m[1];
-                } elseif (preg_match('/AsCommand\([\'"]([^\'"]+)[\'"]/', $attribute, $m)) {
-                    $name = $m[1];
+                foreach ($attribute->arguments as $arg) {
+                    $value = self::unquote($arg->value);
+                    switch ($arg->name) {
+                        case 'name':
+                            $name = $value;
+                            break;
+                        case 'description':
+                            $description = $value;
+                            break;
+                        case null:
+                            $firstPositional ??= $value;
+                            break;
+                    }
                 }
 
-                if (preg_match('/\bdescription:\s*[\'"](.*?)[\'"]/', $attribute, $m)) {
-                    $description = $m[1];
-                }
+                // The first positional argument is the command name.
+                $name ??= $firstPositional;
 
                 $commands[] = [
                     'class' => $class->fqcn,
@@ -48,5 +56,10 @@ final class ConsoleExtractor
         }
 
         $context->symfony['commands'] = $commands;
+    }
+
+    private static function unquote(string $value): string
+    {
+        return trim(trim($value), "'\"");
     }
 }
