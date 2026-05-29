@@ -7,10 +7,10 @@ namespace CodeContext\Model;
 final readonly class ClassInfo
 {
     /**
-     * @param list<string>       $implements
-     * @param list<string>       $traits
-     * @param list<string>       $attributes
-     * @param list<MethodInfo>   $methods
+     * @param list<string>        $implements
+     * @param list<string>        $traits
+     * @param list<AttributeInfo> $attributes
+     * @param list<MethodInfo>    $methods
      * @param list<PropertyInfo> $properties
      * @param list<string>       $cases      Enum case names (populated for kind='enum')
      */
@@ -51,7 +51,7 @@ final readonly class ClassInfo
             'extends' => $this->extends,
             'implements' => $this->implements,
             'traits' => $this->traits,
-            'attributes' => $this->attributes,
+            'attributes' => array_map(static fn (AttributeInfo $a): array => $a->toArray(), $this->attributes),
             'methods' => array_map(static fn (MethodInfo $m): array => $m->toArray(), $this->methods),
             'properties' => array_map(static fn (PropertyInfo $p): array => $p->toArray(), $this->properties),
             'summary' => $this->summary,
@@ -85,7 +85,7 @@ final readonly class ClassInfo
             extends: isset($data['extends']) ? (string) $data['extends'] : null,
             implements: array_values(array_map('strval', (array) ($data['implements'] ?? []))),
             traits: array_values(array_map('strval', (array) ($data['traits'] ?? []))),
-            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            attributes: AttributeInfo::listFromArray($data['attributes'] ?? []),
             methods: array_values($methods),
             properties: array_values($properties),
             summary: isset($data['summary']) ? (string) $data['summary'] : null,

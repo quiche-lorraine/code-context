@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodeContext\Mcp;
 
 use CodeContext\Index\ClassIndex;
+use CodeContext\Model\AttributeInfo;
 
 /**
  * Minimal MCP (Model Context Protocol) server over stdio.
@@ -32,6 +33,25 @@ final class McpServer
         }
 
         return 'dev';
+    }
+
+    /**
+     * Renders structured attribute arrays back into readable strings (e.g. `Route('/blog')`).
+     *
+     * @param mixed $attributes The raw `attributes` value from the context JSON
+     *
+     * @return list<string>
+     */
+    private static function renderAttributes(mixed $attributes): array
+    {
+        $rendered = [];
+        foreach ((array) $attributes as $attribute) {
+            if (\is_array($attribute)) {
+                $rendered[] = AttributeInfo::fromArray($attribute)->render();
+            }
+        }
+
+        return $rendered;
     }
 
     public function run(): void
@@ -251,10 +271,11 @@ final class McpServer
                 (array) $class['traits'],
             ));
         }
-        if ([] !== (array) ($class['attributes'] ?? [])) {
+        $classAttrs = self::renderAttributes($class['attributes'] ?? []);
+        if ([] !== $classAttrs) {
             $lines[] = '**Attributes:** ' . implode(', ', array_map(
                 static fn (string $a): string => '`#[' . $a . ']`',
-                (array) $class['attributes'],
+                $classAttrs,
             ));
         }
         if (null !== ($class['summary'] ?? null) && '' !== $class['summary']) {
@@ -272,7 +293,7 @@ final class McpServer
                 $type = null !== ($prop['type'] ?? null) ? (string) $prop['type'] . ' ' : '';
                 $readonly = ($prop['readonly'] ?? false) ? 'readonly ' : '';
                 $lines[] = "- {$visibility} {$readonly}{$type}\${$prop['name']}";
-                $propAttrs = array_values(array_filter((array) ($prop['attributes'] ?? []), 'is_string'));
+                $propAttrs = self::renderAttributes($prop['attributes'] ?? []);
                 if ([] !== $propAttrs) {
                     $lines[] = '  - Attributes: ' . implode(', ', array_map(
                         static fn (string $a): string => '`#[' . $a . ']`',
@@ -304,7 +325,7 @@ final class McpServer
                     ? ' — ' . $method['summary']
                     : '';
                 $lines[] = "- {$visibility} {$static}{$sig}{$summary}";
-                $methodAttrs = array_values(array_filter((array) ($method['attributes'] ?? []), 'is_string'));
+                $methodAttrs = self::renderAttributes($method['attributes'] ?? []);
                 if ([] !== $methodAttrs) {
                     $lines[] = '  - Attributes: ' . implode(', ', array_map(
                         static fn (string $a): string => '`#[' . $a . ']`',
@@ -596,7 +617,7 @@ final class McpServer
                 $type = null !== ($prop['type'] ?? null) ? (string) $prop['type'] . ' ' : '';
                 $name = (string) ($prop['name'] ?? '');
                 $lines[] = "- {$visibility} {$type}\${$name}";
-                $propAttrs = array_values(array_filter((array) ($prop['attributes'] ?? []), 'is_string'));
+                $propAttrs = self::renderAttributes($prop['attributes'] ?? []);
                 if ([] !== $propAttrs) {
                     $lines[] = '  - Attributes: ' . implode(', ', array_map(
                         static fn (string $a): string => '`#[' . $a . ']`',

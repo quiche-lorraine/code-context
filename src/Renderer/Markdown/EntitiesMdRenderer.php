@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CodeContext\Renderer\Markdown;
 
+use CodeContext\Model\AttributeInfo;
 use CodeContext\Model\Context;
 
 final class EntitiesMdRenderer
@@ -69,15 +70,25 @@ final class EntitiesMdRenderer
     }
 
     /**
+     * Renders Doctrine mapping attributes (with their arguments) from the structured `attributes` list.
+     *
      * @param array<mixed> $attributes
      * @return list<string>
      */
     private function filterDoctrineAttributes(array $attributes): array
     {
-        return array_values(array_filter(
-            array_map('strval', $attributes),
-            static fn (string $a): bool => str_contains($a, 'Doctrine\\ORM\\Mapping\\'),
-        ));
+        $rendered = [];
+        foreach ($attributes as $attribute) {
+            if (!\is_array($attribute)) {
+                continue;
+            }
+            $info = AttributeInfo::fromArray($attribute);
+            if (str_contains($info->name, 'Doctrine\\ORM\\Mapping\\')) {
+                $rendered[] = $info->render();
+            }
+        }
+
+        return $rendered;
     }
 
     private function shortAttrName(string $attr): string

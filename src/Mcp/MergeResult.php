@@ -9,7 +9,8 @@ final class MergeResult
     public function __construct(
         private readonly string $prettyJson,
         private readonly bool $noOp,
-    ) {}
+    ) {
+    }
 
     public function prettyJson(): string
     {

@@ -7,7 +7,7 @@ namespace CodeContext\Model;
 final readonly class PropertyInfo
 {
     /**
-     * @param list<string> $attributes
+     * @param list<AttributeInfo> $attributes
      */
     public function __construct(
         public string $name,
@@ -33,7 +33,7 @@ final readonly class PropertyInfo
             'readonly' => $this->isReadonly,
             'type' => $this->type,
             'default' => $this->default,
-            'attributes' => $this->attributes,
+            'attributes' => array_map(static fn (AttributeInfo $a): array => $a->toArray(), $this->attributes),
             'summary' => $this->summary,
         ];
     }
@@ -50,7 +50,7 @@ final readonly class PropertyInfo
             isReadonly: (bool) ($data['readonly'] ?? false),
             type: isset($data['type']) ? (string) $data['type'] : null,
             default: isset($data['default']) ? (string) $data['default'] : null,
-            attributes: array_values(array_map('strval', (array) ($data['attributes'] ?? []))),
+            attributes: AttributeInfo::listFromArray($data['attributes'] ?? []),
             summary: isset($data['summary']) ? (string) $data['summary'] : null,
         );
     }

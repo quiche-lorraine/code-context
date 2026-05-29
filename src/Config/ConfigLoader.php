@@ -16,8 +16,7 @@ final class ConfigLoader
     public function __construct(
         private readonly string $defaultsPath,
         private readonly ConfigSchema $schema = new ConfigSchema(),
-    )
-    {
+    ) {
     }
 
     /**

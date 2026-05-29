@@ -33,7 +33,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Finder\SplFileInfo;
 
 #[AsCommand(name: 'generate', description: 'Analyze the project and generate the AI context files.')]
 final class GenerateCommand extends Command
@@ -159,7 +158,6 @@ final class GenerateCommand extends Command
 
         foreach ($scanner->scan($project, $config->includePaths(), $config->excludePaths()) as $file) {
             ++$scanned;
-            \assert($file instanceof SplFileInfo);
             $absolute = $file->getRealPath() ?: $file->getPathname();
             $relative = $this->relativePath($project->rootDir, $absolute);
             $scannedFiles[] = $relative;

@@ -8,7 +8,7 @@ final readonly class FunctionInfo
 {
     /**
      * @param list<ParameterInfo> $parameters
-     * @param list<string>        $attributes
+     * @param list<AttributeInfo> $attributes
      */
     public function __construct(
         public string $name,
@@ -38,7 +38,7 @@ final readonly class FunctionInfo
             'file' => $this->file,
             'return_type' => $this->returnType,
             'parameters' => array_map(static fn (ParameterInfo $p): array => $p->toArray(), $this->parameters),
-            'attributes' => $this->attributes,
+            'attributes' => array_map(static fn (AttributeInfo $a): array => $a->toArray(), $this->attributes),
             'summary' => $this->summary,
         ];
     }

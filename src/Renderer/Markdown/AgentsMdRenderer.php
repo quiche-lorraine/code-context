@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodeContext\Renderer\Markdown;
 
 use CodeContext\Config\Config;
+use CodeContext\Model\AttributeInfo;
 use CodeContext\Model\ClassInfo;
 use CodeContext\Model\Context;
 use CodeContext\Model\MethodInfo;
@@ -190,7 +191,7 @@ final class AgentsMdRenderer
             $lines[] = sprintf('- **Uses**: %s', implode(', ', array_map(static fn (string $t): string => '`' . $t . '`', $class->traits)));
         }
         if ([] !== $class->attributes) {
-            $lines[] = sprintf('- **Attributes**: %s', implode(', ', array_map(static fn (string $a): string => '`#[' . $a . ']`', $class->attributes)));
+            $lines[] = sprintf('- **Attributes**: %s', implode(', ', array_map(static fn (AttributeInfo $a): string => '`#[' . $a->render() . ']`', $class->attributes)));
         }
         if (null !== $class->summary && '' !== $class->summary) {
             $lines[] = '';

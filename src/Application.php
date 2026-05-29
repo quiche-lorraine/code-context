@@ -18,8 +18,12 @@ final class Application extends SymfonyApplication
     {
         parent::__construct(self::NAME, self::VERSION);
 
-        $this->add(new GenerateCommand());
-        $this->add(new InitCommand());
-        $this->add(new ServeCommand());
+        // addCommands() is available across Symfony Console 6.4, 7 and 8, whereas the
+        // singular add() was removed in 8.0 in favour of addCommand().
+        $this->addCommands([
+            new GenerateCommand(),
+            new InitCommand(),
+            new ServeCommand(),
+        ]);
     }
 }

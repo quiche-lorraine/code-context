@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CodeContext\Analyzer;
 
 use CodeContext\Config\Config;
+use CodeContext\Model\AttributeArgumentInfo;
+use CodeContext\Model\AttributeInfo;
 use CodeContext\Model\ClassInfo;
 use CodeContext\Model\FunctionInfo;
 use CodeContext\Model\MethodInfo;
@@ -275,11 +277,8 @@ final class PhpAstAnalyzer
             ? $param->var->name
             : '';
 
-        $default = null;
         $hasDefault = null !== $param->default;
-        if ($hasDefault && null !== $param->default) {
-            $default = $this->printExpr($param->default);
-        }
+        $default = $hasDefault ? $this->printExpr($param->default) : null;
 
         return new ParameterInfo(
             name: $name,
@@ -288,6 +287,7 @@ final class PhpAstAnalyzer
             default: $default,
             variadic: $param->variadic,
             byReference: $param->byRef,
+            attributes: $this->extractAttributes($param),
         );
     }
 
@@ -328,7 +328,7 @@ final class PhpAstAnalyzer
     }
 
     /**
-     * @return list<string>
+     * @return list<AttributeInfo>
      */
     private function extractAttributes(Node $node): array
     {
@@ -340,22 +340,23 @@ final class PhpAstAnalyzer
             return [];
         }
 
-        $rendered = [];
+        $attributes = [];
         /** @var list<Node\AttributeGroup> $groups */
         $groups = $node->attrGroups ?? [];
         foreach ($groups as $group) {
             foreach ($group->attrs as $attr) {
-                $name = $attr->name->toString();
-                $args = [];
+                $arguments = [];
                 foreach ($attr->args as $arg) {
-                    $printed = $this->printExpr($arg->value);
-                    $args[] = null !== $arg->name ? $arg->name->toString() . ': ' . $printed : $printed;
+                    $arguments[] = new AttributeArgumentInfo(
+                        name: null !== $arg->name ? $arg->name->toString() : null,
+                        value: $this->printExpr($arg->value),
+                    );
                 }
-                $rendered[] = [] === $args ? $name : $name . '(' . implode(', ', $args) . ')';
+                $attributes[] = new AttributeInfo($attr->name->toString(), $arguments);
             }
         }
 
-        return $rendered;
+        return $attributes;
     }
 
     private function extractDocSummary(Node $node): ?string
@@ -376,9 +377,9 @@ final class PhpAstAnalyzer
         }
 
         if ('first_line' === $level) {
-            $firstLine = strtok($text, "\n");
+            $firstLine = trim(explode("\n", $text)[0]);
 
-            return false === $firstLine ? null : trim($firstLine);
+            return '' === $firstLine ? null : $firstLine;
         }
 
         return $text;
