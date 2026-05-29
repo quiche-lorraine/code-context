@@ -1,6 +1,6 @@
 {
     "name": "quiche-lorraine/code-context",
-    "description": "CLI standalone qui génère un contexte de codebase (JSON + Markdown) destiné aux agents IA.",
+    "description": "Standalone CLI that generates codebase context (JSON + Markdown) for AI agents.",
     "type": "library",
     "keywords": [
         "ai",
