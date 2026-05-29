@@ -72,7 +72,6 @@ final class InitCommand extends Command
                 'mcp' => $this->initMcp($io, $cwd, $dryRun),
                 'claude-code' => $this->initClaudeCode($io, $cwd, $dryRun),
                 'cursor' => $this->initCursor($io, $cwd, $dryRun),
-                default => Command::SUCCESS,
             };
             if ($result !== Command::SUCCESS) {
                 $exitCode = $result;

@@ -31,7 +31,8 @@ final class InitCommandTest extends TestCase
         $json = json_decode((string) file_get_contents($this->tmpDir . '/.mcp.json'), true);
         self::assertIsArray($json);
         self::assertArrayHasKey('code-context', $json['mcpServers']);
-        self::assertSame('vendor/bin/code-context', $json['mcpServers']['code-context']['command']);
+        self::assertSame('php', $json['mcpServers']['code-context']['command']);
+        self::assertContains('vendor/bin/code-context', $json['mcpServers']['code-context']['args']);
     }
 
     public function testMcpInitPreservesExistingServers(): void

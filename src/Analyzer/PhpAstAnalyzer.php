@@ -277,11 +277,8 @@ final class PhpAstAnalyzer
             ? $param->var->name
             : '';
 
-        $default = null;
         $hasDefault = null !== $param->default;
-        if ($hasDefault && null !== $param->default) {
-            $default = $this->printExpr($param->default);
-        }
+        $default = $hasDefault ? $this->printExpr($param->default) : null;
 
         return new ParameterInfo(
             name: $name,
@@ -380,9 +377,9 @@ final class PhpAstAnalyzer
         }
 
         if ('first_line' === $level) {
-            $firstLine = strtok($text, "\n");
+            $firstLine = trim(explode("\n", $text)[0]);
 
-            return false === $firstLine ? null : trim($firstLine);
+            return '' === $firstLine ? null : $firstLine;
         }
 
         return $text;

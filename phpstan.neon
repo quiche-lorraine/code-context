@@ -3,4 +3,8 @@ parameters:
     paths:
         - src
         - tests
+    excludePaths:
+        # Sample user-project files used as test fixtures: they intentionally
+        # reference Doctrine/Symfony classes that are not installed here.
+        - tests/Fixtures/*
     tmpDir: .phpstan

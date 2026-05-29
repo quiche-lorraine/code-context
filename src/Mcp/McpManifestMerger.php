@@ -6,7 +6,9 @@ namespace CodeContext\Mcp;
 
 final class McpManifestMerger
 {
-    public function __construct(private readonly string $path) {}
+    public function __construct(private readonly string $path)
+    {
+    }
 
     /**
      * @param array<string, mixed> $serverConfig
