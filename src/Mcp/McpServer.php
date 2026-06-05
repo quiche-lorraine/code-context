@@ -54,6 +54,33 @@ final class McpServer
         return $rendered;
     }
 
+    /**
+     * Slices a list according to the `limit` (default 50) / `offset` (default 0)
+     * tool arguments and returns the page together with a count suffix to embed in
+     * a header. The suffix is a bare `(N)` when the whole list fits on the first
+     * page, or `(N) showing X–Y` once pagination kicks in.
+     *
+     * @template T
+     *
+     * @param array<string, mixed> $args
+     * @param list<T>               $items
+     *
+     * @return array{0: list<T>, 1: string}
+     */
+    private static function paginate(array $args, array $items): array
+    {
+        $limit = isset($args['limit']) ? max(1, (int) $args['limit']) : 50;
+        $offset = isset($args['offset']) ? max(0, (int) $args['offset']) : 0;
+        $total = \count($items);
+        $page = array_slice($items, $offset, $limit);
+
+        $suffix = (0 === $offset && \count($page) === $total)
+            ? "({$total})"
+            : "({$total}) showing {$offset}–" . ($offset + \count($page) - 1);
+
+        return [$page, $suffix];
+    }
+
     public function run(): void
     {
         while (false !== ($line = fgets(STDIN))) {
@@ -105,18 +132,30 @@ final class McpServer
     private function dispatch(string $method, array $params): array
     {
         return match ($method) {
-            'initialize' => $this->handleInitialize(),
+            'initialize' => $this->handleInitialize($params),
             'tools/list' => $this->handleToolsList(),
             'tools/call' => $this->handleToolsCall($params),
             default => throw new \InvalidArgumentException("Method not found: {$method}"),
         };
     }
 
-    /** @return array<string, mixed> */
-    private function handleInitialize(): array
+    /**
+     * @param array<string, mixed> $params
+     *
+     * @return array<string, mixed>
+     */
+    private function handleInitialize(array $params): array
     {
+        // Echo back the client's requested protocol version when present, so the
+        // server stays forward-compatible as the MCP spec evolves; fall back to the
+        // revision we are written against otherwise.
+        $requested = $params['protocolVersion'] ?? null;
+        $protocolVersion = \is_string($requested) && '' !== $requested
+            ? $requested
+            : self::PROTOCOL_VERSION;
+
         return [
-            'protocolVersion' => self::PROTOCOL_VERSION,
+            'protocolVersion' => $protocolVersion,
             'capabilities' => ['tools' => new \stdClass()],
             'serverInfo' => ['name' => self::SERVER_NAME, 'version' => self::serverVersion()],
         ];
@@ -142,6 +181,7 @@ final class McpServer
         $text = match ($name) {
             'search_symbol' => $this->toolSearchSymbol($args),
             'get_class' => $this->toolGetClass($args),
+            'explain_class' => $this->toolExplainClass($args),
             'find_implementations' => $this->toolFindImplementations($args),
             'find_subclasses' => $this->toolFindSubclasses($args),
             'find_usages' => $this->toolFindUsages($args),
@@ -150,17 +190,17 @@ final class McpServer
             'find_by_attribute' => $this->toolFindByAttribute($args),
             'search_method' => $this->toolSearchMethod($args),
             'get_route' => $this->toolGetRoute($args),
-            'get_commands' => $this->toolGetCommands(),
+            'get_commands' => $this->toolGetCommands($args),
             'get_command' => $this->toolGetCommand($args),
-            'list_entities' => $this->toolListEntities(),
+            'list_entities' => $this->toolListEntities($args),
             'get_entity' => $this->toolGetEntity($args),
-            'get_entity_enums' => $this->toolGetEntityEnums(),
+            'get_entity_enums' => $this->toolGetEntityEnums($args),
             'find_service' => $this->toolFindService($args),
-            'find_voters' => $this->toolFindVoters(),
-            'find_message_handlers' => $this->toolFindMessageHandlers(),
+            'find_voters' => $this->toolFindVoters($args),
+            'find_message_handlers' => $this->toolFindMessageHandlers($args),
             'find_subscribers' => $this->toolFindSubscribers($args),
             'get_workflow' => $this->toolGetWorkflow($args),
-            'list_workflows' => $this->toolListWorkflows(),
+            'list_workflows' => $this->toolListWorkflows($args),
             default => throw new \InvalidArgumentException("Unknown tool: {$name}"),
         };
 
@@ -336,6 +376,190 @@ final class McpServer
         }
 
         return implode("\n", $lines);
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolExplainClass(array $args): string
+    {
+        $fqcn = (string) ($args['fqcn'] ?? '');
+        if ('' === $fqcn) {
+            throw new \InvalidArgumentException('fqcn is required');
+        }
+
+        // Disambiguate short names that match multiple FQCNs (mirrors get_class).
+        if (!str_contains($fqcn, '\\')) {
+            $candidates = $this->index->getShortNameCandidates($fqcn);
+            if (\count($candidates) > 1) {
+                $count = \count($candidates);
+                $list = implode("\n", array_map(static fn (string $c): string => "- `{$c}`", $candidates));
+
+                return "Ambiguous short name \"{$fqcn}\" — {$count} matches found. Please provide a fully qualified class name:\n\n{$list}";
+            }
+        }
+
+        $info = $this->index->explainClass($fqcn);
+        if (null === $info) {
+            return "Class \"{$fqcn}\" not found in the index.";
+        }
+
+        return $this->renderExplainClass($info);
+    }
+
+    /**
+     * @param array<string, mixed> $info
+     */
+    private function renderExplainClass(array $info): string
+    {
+        $shortName = (static function (string $fqcn): string {
+            $pos = strrpos($fqcn, '\\');
+
+            return false === $pos ? $fqcn : substr($fqcn, $pos + 1);
+        })((string) ($info['fqcn'] ?? ''));
+
+        $lines = [];
+        $lines[] = '## ' . (string) ($info['role'] ?? 'class') . ' `' . (string) ($info['fqcn'] ?? '') . '`';
+        $lines[] = '**File:** `' . (string) ($info['file'] ?? '') . '`';
+        if (null !== ($info['extends'] ?? null)) {
+            $lines[] = '**Extends:** `' . (string) $info['extends'] . '`';
+        }
+        if ([] !== (array) ($info['implements'] ?? [])) {
+            $lines[] = '**Implements:** ' . implode(', ', array_map(
+                static fn (string $i): string => '`' . $i . '`',
+                array_map('strval', (array) $info['implements']),
+            ));
+        }
+
+        // Dependencies (outgoing)
+        $deps = array_values(array_filter((array) ($info['depends_on'] ?? []), 'is_array'));
+        if ([] !== $deps) {
+            $lines[] = '';
+            $lines[] = '### Depends on (' . \count($deps) . ')';
+            foreach ($deps as $dep) {
+                $type = null !== ($dep['type'] ?? null) ? '`' . (string) $dep['type'] . '`' : 'mixed';
+                $lines[] = '- $' . (string) ($dep['name'] ?? '') . ': ' . $type;
+            }
+        }
+
+        // Usages (incoming)
+        $usedBy = \is_array($info['used_by'] ?? null) ? $info['used_by'] : [];
+        $usedCount = (int) ($usedBy['count'] ?? 0);
+        if ($usedCount > 0) {
+            $byLayer = \is_array($usedBy['by_layer'] ?? null) ? $usedBy['by_layer'] : [];
+            $layerParts = [];
+            foreach ($byLayer as $layer => $n) {
+                $layerParts[] = (string) $layer . ':' . (int) $n;
+            }
+            $layerStr = [] !== $layerParts ? ' — ' . implode(', ', $layerParts) : '';
+            $lines[] = '';
+            $lines[] = "### Used by ({$usedCount}){$layerStr}";
+            $top = array_map('strval', (array) ($usedBy['top'] ?? []));
+            foreach ($top as $user) {
+                $lines[] = "- `{$user}`";
+            }
+            if ($usedCount > \count($top)) {
+                $more = $usedCount - \count($top);
+                $lines[] = "- … +{$more} more — call find_usages('{$shortName}') for the rest";
+            }
+        }
+
+        // Public API (signatures only)
+        $api = array_map('strval', (array) ($info['public_api'] ?? []));
+        if ([] !== $api) {
+            $lines[] = '';
+            $lines[] = '### Public API (' . \count($api) . ')';
+            $shown = \array_slice($api, 0, 30);
+            foreach ($shown as $signature) {
+                $lines[] = "- `{$signature}`";
+            }
+            if (\count($api) > \count($shown)) {
+                $more = \count($api) - \count($shown);
+                $lines[] = "- … +{$more} more — call get_class('{$shortName}') for the full list";
+            }
+        }
+
+        $lines = array_merge($lines, $this->renderExplainSymfony($info, $shortName));
+
+        // Persistence
+        $persistence = \is_array($info['persistence'] ?? null) ? $info['persistence'] : null;
+        if (null !== $persistence) {
+            $relations = array_values(array_filter((array) ($persistence['relations'] ?? []), 'is_array'));
+            $lines[] = '';
+            $lines[] = '### Persistence (' . (string) ($persistence['storage'] ?? 'orm') . ')';
+            if ([] !== $relations) {
+                foreach ($relations as $relation) {
+                    $lines[] = self::renderRelation($relation);
+                }
+            } else {
+                $lines[] = '- no associations';
+            }
+        }
+
+        // Test coverage
+        $tested = array_map('strval', (array) ($info['tested_by'] ?? []));
+        if ([] !== $tested) {
+            $lines[] = '';
+            $lines[] = '### Tested by (' . \count($tested) . ')';
+            foreach (\array_slice($tested, 0, 10) as $test) {
+                $lines[] = "- `{$test}`";
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Renders the role-aware Symfony bindings block of explain_class (only populated sections).
+     *
+     * @param array<string, mixed> $info
+     *
+     * @return list<string>
+     */
+    private function renderExplainSymfony(array $info, string $shortName): array
+    {
+        $symfony = \is_array($info['symfony'] ?? null) ? $info['symfony'] : [];
+        $routes = array_values(array_filter((array) ($symfony['routes'] ?? []), 'is_array'));
+        $handlesMessage = $symfony['handles_message'] ?? null;
+        $subscribesTo = array_map('strval', (array) ($symfony['subscribes_to'] ?? []));
+        $isVoter = true === ($symfony['voter'] ?? null);
+        $workflows = array_map('strval', (array) ($symfony['workflows'] ?? []));
+
+        if ([] === $routes && null === $handlesMessage && [] === $subscribesTo && !$isVoter && [] === $workflows) {
+            return [];
+        }
+
+        $lines = ['', '### Symfony'];
+        if ([] !== $routes) {
+            $lines[] = '- Routes (' . \count($routes) . '):';
+            foreach (\array_slice($routes, 0, 10) as $route) {
+                $name = null !== ($route['name'] ?? null) ? (string) $route['name'] : '(unnamed)';
+                $path = null !== ($route['path'] ?? null) ? (string) $route['path'] : '';
+                $methods = [] !== (array) ($route['methods'] ?? []) ? ' [' . implode(',', array_map('strval', (array) $route['methods'])) . ']' : '';
+                $lines[] = "  - `{$name}` {$path}{$methods}";
+            }
+            if (\count($routes) > 10) {
+                $lines[] = "  - … call get_routes(filter: '{$shortName}') for the rest";
+            }
+        }
+        if (null !== $handlesMessage && '' !== $handlesMessage) {
+            $lines[] = '- Handles message: `' . (string) $handlesMessage . '`';
+        }
+        if ([] !== $subscribesTo) {
+            $lines[] = '- Subscribes to: ' . implode(', ', array_map(
+                static fn (string $e): string => '`' . $e . '`',
+                $subscribesTo,
+            ));
+        }
+        if ($isVoter) {
+            $lines[] = '- Security voter: yes';
+        }
+        if ([] !== $workflows) {
+            $lines[] = '- Workflows: ' . implode(', ', array_map(
+                static fn (string $w): string => '`' . $w . '`',
+                $workflows,
+            ));
+        }
+
+        return $lines;
     }
 
     /** @param array<string, mixed> $args */
@@ -528,14 +752,16 @@ final class McpServer
         return rtrim(implode("\n", $lines));
     }
 
-    private function toolGetCommands(): string
+    /** @param array<string, mixed> $args */
+    private function toolGetCommands(array $args): string
     {
         $commands = $this->index->getCommands();
         if ([] === $commands) {
             return 'No Symfony commands found in the index.';
         }
 
-        $lines = ['## Symfony Commands (' . \count($commands) . ")\n"];
+        [$commands, $suffix] = self::paginate($args, $commands);
+        $lines = ["## Symfony Commands {$suffix}\n"];
         foreach ($commands as $command) {
             $name = (string) ($command['name'] ?? '<unknown>');
             $description = (string) ($command['description'] ?? '');
@@ -573,14 +799,16 @@ final class McpServer
         return implode("\n", $lines);
     }
 
-    private function toolListEntities(): string
+    /** @param array<string, mixed> $args */
+    private function toolListEntities(array $args): string
     {
         $entities = $this->index->getEntities();
         if ([] === $entities) {
             return 'No Doctrine entities found in the index.';
         }
 
-        $lines = ['## Doctrine Entities (' . \count($entities) . ")\n"];
+        [$entities, $suffix] = self::paginate($args, $entities);
+        $lines = ["## Doctrine Entities {$suffix}\n"];
         foreach ($entities as $entity) {
             $class = (string) ($entity['class'] ?? '');
             $file = (string) ($entity['file'] ?? '');
@@ -627,17 +855,51 @@ final class McpServer
             }
         }
 
+        $relations = array_values(array_filter((array) ($entity['relations'] ?? []), 'is_array'));
+        if ([] !== $relations) {
+            $lines[] = '';
+            $lines[] = '### Relations';
+            foreach ($relations as $relation) {
+                $lines[] = self::renderRelation($relation);
+            }
+        }
+
         return implode("\n", $lines);
     }
 
-    private function toolGetEntityEnums(): string
+    /**
+     * Renders a typed Doctrine relation, e.g. `- comments: OneToMany → App\Entity\Comment (mappedBy: post)`.
+     *
+     * @param array<string, mixed> $relation
+     */
+    private static function renderRelation(array $relation): string
+    {
+        $property = (string) ($relation['property'] ?? '');
+        $kind = (string) ($relation['kind'] ?? '');
+        $target = null !== ($relation['target'] ?? null) ? (string) $relation['target'] : '?';
+
+        $extras = [];
+        if (isset($relation['mappedBy'])) {
+            $extras[] = 'mappedBy: ' . (string) $relation['mappedBy'];
+        }
+        if (isset($relation['inversedBy'])) {
+            $extras[] = 'inversedBy: ' . (string) $relation['inversedBy'];
+        }
+        $extrasStr = [] !== $extras ? ' (' . implode(', ', $extras) . ')' : '';
+
+        return "- {$property}: {$kind} → `{$target}`{$extrasStr}";
+    }
+
+    /** @param array<string, mixed> $args */
+    private function toolGetEntityEnums(array $args): string
     {
         $enums = $this->index->getEntityEnums();
         if ([] === $enums) {
             return 'No enums found in the index.';
         }
 
-        $lines = ['## Entity Enums (' . \count($enums) . ")\n"];
+        [$enums, $suffix] = self::paginate($args, $enums);
+        $lines = ["## Entity Enums {$suffix}\n"];
         foreach ($enums as $enum) {
             $class = (string) ($enum['class'] ?? '');
             $cases = array_values(array_filter((array) ($enum['cases'] ?? []), 'is_string'));
@@ -666,7 +928,7 @@ final class McpServer
 
         $totalConfigured = \count($configured);
         $totalAutowired = \count($autowired);
-        $lines = [];
+        $lines = ['_Sections are paged independently (limit/offset applies to each)._', ''];
 
         if ([] !== $configured) {
             $page = array_slice($configured, $offset, $limit);
@@ -772,14 +1034,16 @@ final class McpServer
         return implode("\n", $lines);
     }
 
-    private function toolFindVoters(): string
+    /** @param array<string, mixed> $args */
+    private function toolFindVoters(array $args): string
     {
         $voters = $this->index->findVoters();
         if ([] === $voters) {
             return 'No Security Voters found (no classes extend Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter).';
         }
 
-        $lines = ['## Security Voters (' . \count($voters) . ")\n"];
+        [$voters, $suffix] = self::paginate($args, $voters);
+        $lines = ["## Security Voters {$suffix}\n"];
         foreach ($voters as $voter) {
             $class = $this->index->getClass($voter);
             $file = null !== $class ? ' (`' . ($class['file'] ?? '') . '`)' : '';
@@ -789,14 +1053,16 @@ final class McpServer
         return implode("\n", $lines);
     }
 
-    private function toolFindMessageHandlers(): string
+    /** @param array<string, mixed> $args */
+    private function toolFindMessageHandlers(array $args): string
     {
         $handlers = $this->index->findMessageHandlers();
         if ([] === $handlers) {
             return 'No Messenger handlers found (no classes carry #[AsMessageHandler]).';
         }
 
-        $lines = ['## Messenger Handlers (' . \count($handlers) . ")\n"];
+        [$handlers, $suffix] = self::paginate($args, $handlers);
+        $lines = ["## Messenger Handlers {$suffix}\n"];
         foreach ($handlers as $handler) {
             $message = null !== $handler['message'] && '' !== $handler['message']
                 ? ' — message: `' . $handler['message'] . '`'
@@ -822,9 +1088,10 @@ final class McpServer
             return "No event subscribers found{$suffix}.";
         }
 
+        [$subscribers, $suffix] = self::paginate($args, $subscribers);
         $title = null !== $event && '' !== $event
-            ? "## Event Subscribers matching \"{$event}\" (" . \count($subscribers) . ")"
-            : '## Event Subscribers (' . \count($subscribers) . ')';
+            ? "## Event Subscribers matching \"{$event}\" {$suffix}"
+            : "## Event Subscribers {$suffix}";
         $lines = [$title, ''];
         foreach ($subscribers as $subscriber) {
             $class = (string) ($subscriber['class'] ?? '');
@@ -848,14 +1115,16 @@ final class McpServer
         return rtrim(implode("\n", $lines));
     }
 
-    private function toolListWorkflows(): string
+    /** @param array<string, mixed> $args */
+    private function toolListWorkflows(array $args): string
     {
         $workflows = $this->index->getWorkflows();
         if ([] === $workflows) {
             return 'No workflows or state machines found in config/packages/.';
         }
 
-        $lines = ['## Workflows (' . \count($workflows) . ")\n"];
+        [$workflows, $suffix] = self::paginate($args, $workflows);
+        $lines = ["## Workflows {$suffix}\n"];
         foreach ($workflows as $workflow) {
             $name = (string) ($workflow['name'] ?? '');
             $type = (string) ($workflow['type'] ?? 'workflow');
@@ -934,6 +1203,11 @@ final class McpServer
     /** @return list<array<string, mixed>> */
     private function toolDefinitions(): array
     {
+        $pagination = [
+            'limit' => ['type' => 'integer', 'description' => 'Maximum number of results to return (default: 50)'],
+            'offset' => ['type' => 'integer', 'description' => 'Number of results to skip (default: 0)'],
+        ];
+
         return [
             [
                 'name' => 'search_symbol',
@@ -952,6 +1226,17 @@ final class McpServer
             [
                 'name' => 'get_class',
                 'description' => 'Get full details of a class/interface/trait/enum including all methods and properties.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'fqcn' => ['type' => 'string', 'description' => 'Fully qualified class name (or short name for unambiguous matches)'],
+                    ],
+                    'required' => ['fqcn'],
+                ],
+            ],
+            [
+                'name' => 'explain_class',
+                'description' => 'One-call situational overview of a class: inferred role, constructor dependencies, who uses it (with a per-layer breakdown), public API signatures, Symfony bindings (routes / message handler / subscribed events / voter / workflows) and Doctrine persistence. Compact by design — method signatures only, never bodies (use get_class for those).',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
@@ -999,7 +1284,7 @@ final class McpServer
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
-                        'filter' => ['type' => 'string', 'description' => 'Optional substring filter on controller class, method or route attribute'],
+                        'filter' => ['type' => 'string', 'description' => 'Optional substring filter on controller class/method, route name, path, HTTP methods or the raw attribute'],
                         'limit' => ['type' => 'integer', 'description' => 'Maximum number of routes to return'],
                         'offset' => ['type' => 'integer', 'description' => 'Number of routes to skip (default: 0)'],
                     ],
@@ -1059,7 +1344,7 @@ final class McpServer
             [
                 'name' => 'get_commands',
                 'description' => 'List all Symfony console commands declared via #[AsCommand].',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'get_command',
@@ -1075,7 +1360,7 @@ final class McpServer
             [
                 'name' => 'list_entities',
                 'description' => 'List all Doctrine entities (classes annotated with ORM\\Entity).',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'get_entity',
@@ -1091,30 +1376,29 @@ final class McpServer
             [
                 'name' => 'get_entity_enums',
                 'description' => 'List all PHP enums declared in the project (often used as Doctrine enum types).',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'find_service',
-                'description' => 'Search the Symfony service container: matches configured services by id and autowired services by FQCN/namespace.',
+                'description' => 'Search the Symfony service container: matches configured services by id and autowired services by FQCN/namespace. Omit query to list the whole container. Each section (configured / autowired) is paginated independently.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
-                        'query' => ['type' => 'string', 'description' => 'Substring to match against service ids, FQCNs or namespaces'],
+                        'query' => ['type' => 'string', 'description' => 'Optional substring to match against service ids, FQCNs or namespaces. Omit to list everything.'],
                         'limit' => ['type' => 'integer', 'description' => 'Maximum number of results per section to return (default: 50)'],
                         'offset' => ['type' => 'integer', 'description' => 'Number of results to skip per section (default: 0)'],
                     ],
-                    'required' => ['query'],
                 ],
             ],
             [
                 'name' => 'find_voters',
                 'description' => 'List all Symfony Security Voters (transitive subclasses of Voter or implementors of VoterInterface).',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'find_message_handlers',
                 'description' => 'List all Symfony Messenger handlers (classes carrying #[AsMessageHandler]) with the message type they handle.',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'find_subscribers',
@@ -1123,13 +1407,13 @@ final class McpServer
                     'type' => 'object',
                     'properties' => [
                         'event' => ['type' => 'string', 'description' => 'Optional event name substring filter (e.g. "kernel.request")'],
-                    ],
+                    ] + $pagination,
                 ],
             ],
             [
                 'name' => 'list_workflows',
                 'description' => 'List all Symfony workflows and state machines configured under framework.workflows in config/packages/.',
-                'inputSchema' => ['type' => 'object', 'properties' => new \stdClass()],
+                'inputSchema' => ['type' => 'object', 'properties' => $pagination],
             ],
             [
                 'name' => 'get_workflow',

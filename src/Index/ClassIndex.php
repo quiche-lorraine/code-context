@@ -517,6 +517,332 @@ final class ClassIndex
     }
 
     /**
+     * Assembles a compact "situational awareness" picture of a class from data already
+     * present in the index: inferred role, constructor dependencies, reverse usages
+     * (with a per-layer breakdown), public API signatures, Symfony bindings, Doctrine
+     * persistence and test coverage. Returns null when the class is unknown.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function explainClass(string $fqcn): ?array
+    {
+        $class = $this->byFqcn[$fqcn] ?? $this->byFqcn[$this->resolveShortName($fqcn)] ?? null;
+        if (null === $class) {
+            return null;
+        }
+        $classFqcn = (string) ($class['fqcn'] ?? '');
+
+        $symfony = $this->symfonyBindings($classFqcn);
+        $persistence = $this->persistence($classFqcn);
+
+        return [
+            'fqcn' => $classFqcn,
+            'file' => (string) ($class['file'] ?? ''),
+            'kind' => (string) ($class['kind'] ?? 'class'),
+            'role' => $this->inferRole($class, $symfony, null !== $persistence),
+            'extends' => $class['extends'] ?? null,
+            'implements' => array_values(array_map('strval', (array) ($class['implements'] ?? []))),
+            'traits' => array_values(array_map('strval', (array) ($class['traits'] ?? []))),
+            'depends_on' => $this->constructorDependencies($class),
+            'used_by' => $this->usedBy($classFqcn),
+            'public_api' => $this->publicApi($class),
+            'symfony' => $symfony,
+            'persistence' => $persistence,
+            'tested_by' => $this->testedBy($classFqcn),
+        ];
+    }
+
+    /**
+     * Constructor-injected dependencies as `{name, type}` pairs.
+     *
+     * @param array<string, mixed> $class
+     *
+     * @return list<array{name: string, type: ?string}>
+     */
+    private function constructorDependencies(array $class): array
+    {
+        foreach ((array) ($class['methods'] ?? []) as $method) {
+            if (!\is_array($method) || ($method['name'] ?? null) !== '__construct') {
+                continue;
+            }
+            $deps = [];
+            foreach ((array) ($method['parameters'] ?? []) as $param) {
+                if (!\is_array($param)) {
+                    continue;
+                }
+                $deps[] = [
+                    'name' => (string) ($param['name'] ?? ''),
+                    'type' => isset($param['type']) ? (string) $param['type'] : null,
+                ];
+            }
+
+            return $deps;
+        }
+
+        return [];
+    }
+
+    /**
+     * Reverse usages with a per-layer tally and a capped `top` list.
+     *
+     * @return array{count: int, by_layer: array<string, int>, top: list<string>}
+     */
+    private function usedBy(string $fqcn): array
+    {
+        $users = $this->findUsages($fqcn);
+        $byLayer = [];
+        foreach ($users as $user) {
+            $layer = $this->classifyLayer($user);
+            $byLayer[$layer] = ($byLayer[$layer] ?? 0) + 1;
+        }
+
+        return [
+            'count' => \count($users),
+            'by_layer' => $byLayer,
+            'top' => \array_slice($users, 0, 10),
+        ];
+    }
+
+    /**
+     * Public method signatures (excluding the constructor), no bodies.
+     *
+     * @param array<string, mixed> $class
+     *
+     * @return list<string>
+     */
+    private function publicApi(array $class): array
+    {
+        $api = [];
+        foreach ((array) ($class['methods'] ?? []) as $method) {
+            if (!\is_array($method)) {
+                continue;
+            }
+            $name = (string) ($method['name'] ?? '');
+            if ('' === $name || '__construct' === $name) {
+                continue;
+            }
+            if ('public' !== ($method['visibility'] ?? 'public')) {
+                continue;
+            }
+            $api[] = self::methodSignature($method);
+        }
+
+        return $api;
+    }
+
+    /**
+     * Builds a parameter/return signature string, e.g. `setOwner(Foo $foo, User $owner): void`.
+     *
+     * @param array<string, mixed> $method
+     */
+    private static function methodSignature(array $method): string
+    {
+        $params = [];
+        foreach ((array) ($method['parameters'] ?? []) as $param) {
+            if (!\is_array($param)) {
+                continue;
+            }
+            $type = null !== ($param['type'] ?? null) ? (string) $param['type'] . ' ' : '';
+            $params[] = $type . '$' . (string) ($param['name'] ?? '');
+        }
+        $return = null !== ($method['return_type'] ?? null) ? ': ' . (string) $method['return_type'] : '';
+
+        return (string) ($method['name'] ?? '') . '(' . implode(', ', $params) . ')' . $return;
+    }
+
+    /**
+     * Role-aware Symfony bindings for a class. Sections are null/empty when irrelevant.
+     *
+     * @return array{routes: list<array<string, mixed>>, handles_message: ?string, subscribes_to: list<string>, voter: ?bool, workflows: list<string>}
+     */
+    private function symfonyBindings(string $fqcn): array
+    {
+        return [
+            'routes' => $this->getRoutesForClass($fqcn),
+            'handles_message' => $this->handledMessage($fqcn),
+            'subscribes_to' => $this->subscribedEvents($fqcn),
+            'voter' => \in_array($fqcn, $this->findVoters(), true) ? true : null,
+            'workflows' => $this->workflowsSupporting($fqcn),
+        ];
+    }
+
+    /**
+     * Routes whose controller is the given class.
+     *
+     * @return list<array{name: ?string, path: ?string, methods: list<string>}>
+     */
+    private function getRoutesForClass(string $fqcn): array
+    {
+        $result = [];
+        foreach ($this->routes as $route) {
+            if ((string) ($route['class'] ?? '') === $fqcn) {
+                $result[] = [
+                    'name' => isset($route['name']) ? (string) $route['name'] : null,
+                    'path' => isset($route['path']) ? (string) $route['path'] : null,
+                    'methods' => array_values(array_map('strval', (array) ($route['methods'] ?? []))),
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Message type handled when the class carries #[AsMessageHandler], else null.
+     */
+    private function handledMessage(string $fqcn): ?string
+    {
+        foreach ($this->attributeIndex[strtolower('AsMessageHandler')] ?? [] as $entry) {
+            if ($entry['fqcn'] === $fqcn) {
+                return $this->resolveMessageType($fqcn, $entry['member']);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Event names the class subscribes to (when it is an EventSubscriber).
+     *
+     * @return list<string>
+     */
+    private function subscribedEvents(string $fqcn): array
+    {
+        foreach ($this->eventSubscribers as $subscriber) {
+            if ((string) ($subscriber['class'] ?? '') !== $fqcn) {
+                continue;
+            }
+            $events = [];
+            foreach ((array) ($subscriber['events'] ?? []) as $ev) {
+                if (\is_array($ev) && isset($ev['event'])) {
+                    $events[] = (string) $ev['event'];
+                }
+            }
+
+            return array_values(array_unique($events));
+        }
+
+        return [];
+    }
+
+    /**
+     * Names of workflows / state machines whose `supports` lists the class.
+     *
+     * @return list<string>
+     */
+    private function workflowsSupporting(string $fqcn): array
+    {
+        $names = [];
+        foreach ($this->workflows as $workflow) {
+            foreach ((array) ($workflow['supports'] ?? []) as $supported) {
+                if (ltrim((string) $supported, '\\') === $fqcn) {
+                    $name = (string) ($workflow['name'] ?? '');
+                    if ('' !== $name) {
+                        $names[] = $name;
+                    }
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * Doctrine persistence info when the class is a known entity, else null.
+     *
+     * @return array{storage: string, relations: list<array<string, mixed>>}|null
+     */
+    private function persistence(string $fqcn): ?array
+    {
+        $entity = $this->getEntity($fqcn);
+        if (null === $entity) {
+            return null;
+        }
+
+        return [
+            'storage' => 'orm',
+            'relations' => array_values(array_filter((array) ($entity['relations'] ?? []), 'is_array')),
+        ];
+    }
+
+    /**
+     * FQCNs of test classes that reference the given type.
+     *
+     * @return list<string>
+     */
+    private function testedBy(string $fqcn): array
+    {
+        $tests = [];
+        foreach ($this->findUsages($fqcn) as $user) {
+            if ('test' === $this->classifyLayer($user)) {
+                $tests[] = $user;
+            }
+        }
+
+        return $tests;
+    }
+
+    /**
+     * Infers a coarse role for a class, preferring framework signals over naming.
+     *
+     * @param array<string, mixed>                                                                                                            $class
+     * @param array{routes: list<array<string, mixed>>, handles_message: ?string, subscribes_to: list<string>, voter: ?bool, workflows: list<string>} $symfony
+     */
+    private function inferRole(array $class, array $symfony, bool $isEntity): string
+    {
+        if ($isEntity) {
+            return 'entity';
+        }
+        if (true === $symfony['voter']) {
+            return 'voter';
+        }
+        if (null !== $symfony['handles_message']) {
+            return 'message_handler';
+        }
+        if ([] !== $symfony['subscribes_to']) {
+            return 'subscriber';
+        }
+        if ([] !== $symfony['routes']) {
+            return 'controller';
+        }
+
+        $layer = $this->classifyLayer((string) ($class['fqcn'] ?? ''));
+
+        return 'other' !== $layer ? $layer : (string) ($class['kind'] ?? 'class');
+    }
+
+    /**
+     * Classifies a class into an architectural layer from its namespace segments.
+     */
+    private function classifyLayer(string $fqcn): string
+    {
+        foreach (explode('\\', $fqcn) as $segment) {
+            if ('Test' === $segment || 'Tests' === $segment) {
+                return 'test';
+            }
+        }
+
+        $haystack = strtolower($fqcn);
+
+        return match (true) {
+            str_contains($haystack, '\\controller\\') => 'controller',
+            str_contains($haystack, '\\command\\') => 'command',
+            str_contains($haystack, '\\subscriber\\'), str_contains($haystack, '\\eventsubscriber\\') => 'subscriber',
+            str_contains($haystack, '\\listener\\') => 'listener',
+            str_contains($haystack, '\\voter\\') => 'voter',
+            str_contains($haystack, '\\repository\\') => 'repository',
+            str_contains($haystack, '\\manager\\') => 'manager',
+            str_contains($haystack, '\\messagehandler\\'), str_contains($haystack, '\\handler\\') => 'message_handler',
+            str_contains($haystack, '\\entity\\'), str_contains($haystack, '\\document\\') => 'entity',
+            str_contains($haystack, '\\service\\') => 'service',
+            str_contains($haystack, '\\form\\') => 'form',
+            str_contains($haystack, '\\factory\\') => 'factory',
+            default => 'other',
+        };
+    }
+
+    /**
      * Returns all routes, optionally filtered by a substring on the controller or path attribute.
      *
      * @return list<array<string, mixed>>
@@ -532,9 +858,21 @@ final class ClassIndex
         return array_values(array_filter(
             $this->routes,
             static function (array $route) use ($f): bool {
-                return str_contains(strtolower((string) ($route['class'] ?? '')), $f)
+                if (str_contains(strtolower((string) ($route['class'] ?? '')), $f)
                     || str_contains(strtolower((string) ($route['attribute'] ?? '')), $f)
-                    || str_contains(strtolower((string) ($route['method'] ?? '')), $f);
+                    || str_contains(strtolower((string) ($route['method'] ?? '')), $f)
+                    || str_contains(strtolower((string) ($route['name'] ?? '')), $f)
+                    || str_contains(strtolower((string) ($route['path'] ?? '')), $f)) {
+                    return true;
+                }
+
+                foreach ((array) ($route['methods'] ?? []) as $httpMethod) {
+                    if (str_contains(strtolower((string) $httpMethod), $f)) {
+                        return true;
+                    }
+                }
+
+                return false;
             },
         ));
     }
