@@ -38,6 +38,22 @@ final class McpServerTest extends TestCase
         return $result['tools'];
     }
 
+    /**
+     * @param array<string, mixed> $params
+     *
+     * @return array<string, mixed>
+     */
+    private function dispatch(McpServer $server, string $rpcMethod, array $params = []): array
+    {
+        $ref = new \ReflectionClass($server);
+        $method = $ref->getMethod('dispatch');
+        $method->setAccessible(true);
+        /** @var array<string, mixed> $result */
+        $result = $method->invoke($server, $rpcMethod, $params);
+
+        return $result;
+    }
+
     private function buildFixture(): McpServer
     {
         $contextData = [
@@ -631,5 +647,278 @@ final class McpServerTest extends TestCase
         $output = $this->callTool($this->buildFixture(), 'get_workflow', ['name' => 'missing']);
 
         self::assertStringContainsString('not found', $output);
+    }
+
+    public function testGetRoutesFilterMatchesNamePathAndMethods(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'routes' => [
+                    ['scope' => 'method', 'class' => 'App\\Controller\\UserController', 'method' => 'list', 'attribute' => 'Route(...)', 'name' => 'api_users_list', 'path' => '/api/users', 'methods' => ['GET']],
+                    ['scope' => 'method', 'class' => 'App\\Controller\\HomeController', 'method' => 'index', 'attribute' => 'Route(...)', 'name' => 'home', 'path' => '/', 'methods' => ['POST']],
+                ],
+            ],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        // Filter on route name (not present in class/method/attribute)
+        $byName = $this->callTool($server, 'get_routes', ['filter' => 'api_users_']);
+        self::assertStringContainsString('api_users_list', $byName);
+        self::assertStringNotContainsString('home', $byName);
+
+        // Filter on path
+        $byPath = $this->callTool($server, 'get_routes', ['filter' => '/api/']);
+        self::assertStringContainsString('api_users_list', $byPath);
+        self::assertStringNotContainsString('name=home', $byPath);
+
+        // Filter on HTTP method
+        $byMethod = $this->callTool($server, 'get_routes', ['filter' => 'post']);
+        self::assertStringContainsString('home', $byMethod);
+        self::assertStringNotContainsString('api_users_list', $byMethod);
+    }
+
+    public function testFindSubscribersPagination(): void
+    {
+        $contextData = [
+            'php' => ['classes' => [], 'graph' => []],
+            'symfony' => [
+                'event_subscribers' => [
+                    ['class' => 'App\\Subscriber\\OneSubscriber', 'file' => 'a.php', 'events' => [['event' => 'e1', 'method' => 'm', 'priority' => null]]],
+                    ['class' => 'App\\Subscriber\\TwoSubscriber', 'file' => 'b.php', 'events' => [['event' => 'e2', 'method' => 'm', 'priority' => null]]],
+                    ['class' => 'App\\Subscriber\\ThreeSubscriber', 'file' => 'c.php', 'events' => [['event' => 'e3', 'method' => 'm', 'priority' => null]]],
+                ],
+            ],
+        ];
+        $server = new McpServer(ClassIndex::fromContextArray($contextData));
+
+        $output = $this->callTool($server, 'find_subscribers', ['limit' => 2]);
+        self::assertStringContainsString('(3) showing 0–1', $output);
+        self::assertStringContainsString('OneSubscriber', $output);
+        self::assertStringNotContainsString('ThreeSubscriber', $output);
+
+        $page2 = $this->callTool($server, 'find_subscribers', ['limit' => 2, 'offset' => 2]);
+        self::assertStringContainsString('(3) showing 2–2', $page2);
+        self::assertStringContainsString('ThreeSubscriber', $page2);
+    }
+
+    public function testFindServiceWithoutQueryListsEverything(): void
+    {
+        $output = $this->callTool($this->buildFixture(), 'find_service');
+
+        self::assertStringContainsString('Configured services', $output);
+        self::assertStringContainsString('app.custom_service', $output);
+        self::assertStringContainsString('Autowired services', $output);
+        self::assertStringContainsString('App\\Command\\SyncCommand', $output);
+        self::assertStringContainsString('paged independently', $output);
+    }
+
+    public function testFindServiceQueryIsOptionalInSchema(): void
+    {
+        $tools = $this->listTools($this->buildFixture());
+        $findService = null;
+        foreach ($tools as $tool) {
+            if (($tool['name'] ?? null) === 'find_service') {
+                $findService = $tool;
+                break;
+            }
+        }
+
+        self::assertNotNull($findService);
+        $required = (array) ($findService['inputSchema']['required'] ?? []);
+        self::assertNotContains('query', $required);
+    }
+
+    public function testExplainClassIsRegistered(): void
+    {
+        $tools = $this->listTools($this->buildFixture());
+        $names = array_map(static fn (array $t): string => (string) ($t['name'] ?? ''), $tools);
+
+        self::assertContains('explain_class', $names);
+    }
+
+    public function testInitializeEchoesClientProtocolVersion(): void
+    {
+        $server = $this->buildFixture();
+
+        $echoed = $this->dispatch($server, 'initialize', ['protocolVersion' => '2025-06-18']);
+        self::assertSame('2025-06-18', $echoed['protocolVersion'] ?? null);
+
+        $fallback = $this->dispatch($server, 'initialize', []);
+        self::assertSame('2024-11-05', $fallback['protocolVersion'] ?? null);
+    }
+
+    /**
+     * @return McpServer
+     */
+    private function buildExplainFixture(): McpServer
+    {
+        $contextData = [
+            'php' => [
+                'classes' => [
+                    [
+                        'fqcn' => 'App\\Manager\\FooManager',
+                        'short_name' => 'FooManager',
+                        'namespace' => 'App\\Manager',
+                        'kind' => 'class',
+                        'file' => 'src/Manager/FooManager.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [],
+                        'attributes' => [],
+                        'methods' => [
+                            [
+                                'name' => '__construct',
+                                'visibility' => 'public', 'static' => false, 'return_type' => null,
+                                'parameters' => [
+                                    ['name' => 'entityManager', 'type' => 'Doctrine\\ORM\\EntityManagerInterface'],
+                                    ['name' => 'barService', 'type' => 'App\\Service\\BarService'],
+                                ],
+                                'attributes' => [], 'summary' => null,
+                            ],
+                            [
+                                'name' => 'createDraft',
+                                'visibility' => 'public', 'static' => false, 'return_type' => 'App\\Entity\\Foo',
+                                'parameters' => [], 'attributes' => [], 'summary' => null,
+                            ],
+                            [
+                                'name' => 'internalHelper',
+                                'visibility' => 'private', 'static' => false, 'return_type' => 'void',
+                                'parameters' => [], 'attributes' => [], 'summary' => null,
+                            ],
+                        ],
+                        'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                    [
+                        'fqcn' => 'App\\Controller\\FooController',
+                        'short_name' => 'FooController',
+                        'namespace' => 'App\\Controller',
+                        'kind' => 'class',
+                        'file' => 'src/Controller/FooController.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [],
+                        'attributes' => [], 'methods' => [], 'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                ],
+                'graph' => [
+                    'type_usages' => [
+                        'App\\Manager\\FooManager' => [
+                            'App\\Controller\\FooController',
+                            'App\\Command\\CleanFooCommand',
+                            'App\\Tests\\Manager\\FooManagerTest',
+                        ],
+                    ],
+                ],
+            ],
+            'symfony' => [
+                'routes' => [
+                    ['scope' => 'method', 'class' => 'App\\Controller\\FooController', 'method' => 'index', 'attribute' => 'Route(...)', 'name' => 'foo_index', 'path' => '/foo', 'methods' => ['GET']],
+                ],
+            ],
+        ];
+
+        return new McpServer(ClassIndex::fromContextArray($contextData));
+    }
+
+    public function testExplainClassManager(): void
+    {
+        $output = $this->callTool($this->buildExplainFixture(), 'explain_class', ['fqcn' => 'App\\Manager\\FooManager']);
+
+        // Role + header
+        self::assertStringContainsString('## manager `App\\Manager\\FooManager`', $output);
+
+        // Constructor dependencies (outgoing)
+        self::assertStringContainsString('### Depends on (2)', $output);
+        self::assertStringContainsString('$entityManager: `Doctrine\\ORM\\EntityManagerInterface`', $output);
+
+        // Usages (incoming) with per-layer breakdown
+        self::assertStringContainsString('### Used by (3)', $output);
+        self::assertStringContainsString('controller:1', $output);
+        self::assertStringContainsString('command:1', $output);
+        self::assertStringContainsString('App\\Controller\\FooController', $output);
+
+        // Public API: signatures only, excludes constructor and private methods
+        self::assertStringContainsString('createDraft(): App\\Entity\\Foo', $output);
+        self::assertStringNotContainsString('internalHelper', $output);
+
+        // Tested by, derived from the test-namespace usage
+        self::assertStringContainsString('### Tested by (1)', $output);
+        self::assertStringContainsString('App\\Tests\\Manager\\FooManagerTest', $output);
+    }
+
+    public function testExplainClassControllerReportsRoutes(): void
+    {
+        $output = $this->callTool($this->buildExplainFixture(), 'explain_class', ['fqcn' => 'App\\Controller\\FooController']);
+
+        self::assertStringContainsString('## controller `App\\Controller\\FooController`', $output);
+        self::assertStringContainsString('### Symfony', $output);
+        self::assertStringContainsString('foo_index', $output);
+        self::assertStringContainsString('/foo', $output);
+    }
+
+    public function testExplainClassEntityReportsPersistence(): void
+    {
+        $output = $this->callTool($this->buildRelationsFixture(), 'explain_class', ['fqcn' => 'App\\Entity\\Post']);
+
+        self::assertStringContainsString('## entity `App\\Entity\\Post`', $output);
+        self::assertStringContainsString('### Persistence (orm)', $output);
+        self::assertStringContainsString('comments: OneToMany', $output);
+        self::assertStringContainsString('App\\Entity\\Comment', $output);
+    }
+
+    public function testExplainClassNotFound(): void
+    {
+        $output = $this->callTool($this->buildExplainFixture(), 'explain_class', ['fqcn' => 'App\\Nope\\Missing']);
+
+        self::assertStringContainsString('not found', $output);
+    }
+
+    /**
+     * Fixture whose entity records already carry parsed `relations` (as the
+     * EntityExtractor would emit), to exercise rendering in get_entity / explain_class.
+     */
+    private function buildRelationsFixture(): McpServer
+    {
+        $contextData = [
+            'php' => [
+                'classes' => [
+                    [
+                        'fqcn' => 'App\\Entity\\Post',
+                        'short_name' => 'Post',
+                        'namespace' => 'App\\Entity',
+                        'kind' => 'class',
+                        'file' => 'src/Entity/Post.php',
+                        'abstract' => false, 'final' => false, 'readonly' => false,
+                        'extends' => null, 'implements' => [], 'traits' => [],
+                        'attributes' => [['name' => 'Doctrine\\ORM\\Mapping\\Entity', 'arguments' => []]],
+                        'methods' => [], 'properties' => [], 'summary' => null, 'cases' => [],
+                    ],
+                ],
+                'graph' => [],
+            ],
+            'symfony' => [
+                'entities' => [
+                    [
+                        'class' => 'App\\Entity\\Post',
+                        'file' => 'src/Entity/Post.php',
+                        'properties' => [],
+                        'relations' => [
+                            ['property' => 'author', 'kind' => 'ManyToOne', 'target' => 'App\\Entity\\User', 'inversedBy' => 'posts'],
+                            ['property' => 'comments', 'kind' => 'OneToMany', 'target' => 'App\\Entity\\Comment', 'mappedBy' => 'post'],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        return new McpServer(ClassIndex::fromContextArray($contextData));
+    }
+
+    public function testGetEntityRendersRelations(): void
+    {
+        $output = $this->callTool($this->buildRelationsFixture(), 'get_entity', ['class' => 'App\\Entity\\Post']);
+
+        self::assertStringContainsString('### Relations', $output);
+        self::assertStringContainsString('author: ManyToOne → `App\\Entity\\User` (inversedBy: posts)', $output);
+        self::assertStringContainsString('comments: OneToMany → `App\\Entity\\Comment` (mappedBy: post)', $output);
     }
 }
